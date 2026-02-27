@@ -40,4 +40,4 @@ quadruped_ctrl/
 
 ## 许可证
 
-MIT License
+Apache2.0 License
