@@ -20,4 +20,5 @@ reward:
     alive: 0.2
     tilt: 0.5
     energy: 0.0001
+    action_delta: 0.1
   alive: 1.0

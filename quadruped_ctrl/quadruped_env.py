@@ -110,6 +110,7 @@ class QuadrupedEnv(gym.Env):
         )
         self.stand_pose_qpos = np.array([0.0, 0.7, -1.4] * 4, dtype=np.float32)
         self.prev_action = np.zeros(n_dof, dtype=np.float32)
+        self.current_action = np.zeros(n_dof, dtype=np.float32)  # 用于 RL 动作变化惩罚
         self.kp = float(self.robot.swing_kp)
         self.kd = float(self.robot.swing_kd)
         reward_cfg = self.rl_config.get('reward', {})
@@ -119,6 +120,7 @@ class QuadrupedEnv(gym.Env):
         self.reward_w_alive = float(weights.get('alive', 0.2))
         self.reward_w_tilt = float(weights.get('tilt', 0.5))
         self.reward_w_energy = float(weights.get('energy', 0.0001))
+        self.reward_w_action_delta = float(weights.get('action_delta', 0.1))
         self.reward_alive = float(reward_cfg.get('alive', 1.0))
     
     def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[np.ndarray, Dict]:
@@ -154,6 +156,7 @@ class QuadrupedEnv(gym.Env):
         
         self.current_step = 0
         self.prev_action = np.zeros(self.action_space.shape, dtype=np.float32)
+        self.current_action = np.zeros(self.action_space.shape, dtype=np.float32)
         
         obs = self.get_observation()
         info = self.get_info()
@@ -439,17 +442,23 @@ class QuadrupedEnv(gym.Env):
         ])
         p_energy = float(np.sum(np.abs(tau * joint_qvel)))
 
+        # 动作变化惩罚
+        action_delta = np.linalg.norm(self.current_action - self.prev_action)
+        p_action_delta = float(action_delta)
+
         reward = (
             self.reward_w_vel * r_vel
             + self.reward_w_alive * self.reward_alive
             - self.reward_w_tilt * p_tilt
             - self.reward_w_energy * p_energy
+            - self.reward_w_action_delta * p_action_delta
         )
         info = {
             'r_vel': float(r_vel),
             'r_alive': float(self.reward_alive),
             'p_tilt': float(p_tilt),
             'p_energy': float(p_energy),
+            'p_action_delta': float(p_action_delta),
             'reward': float(reward),
         }
         return float(reward), info
@@ -492,6 +501,7 @@ class QuadrupedEnv(gym.Env):
         tau = self.kp * (q_des - qpos) + self.kd * (0.0 - qvel)
 
         self.prev_action = smoothed_offset.astype(np.float32).copy()
+        self.current_action = rl_action.astype(np.float32).copy()  # 记录当前 RL 原始动作
         return tau.astype(np.float32)
     
     def _setup_joint_mapping(self):
