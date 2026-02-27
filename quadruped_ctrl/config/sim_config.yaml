@@ -28,7 +28,7 @@ ik_solver:
 render:
   render_frequency: 30
   show_velocity_vector: true
-  show_swing_trajectory: false  
+  show_swing_trajectory: true  
   show_footholds: false
 
 gait:
