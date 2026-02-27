@@ -24,6 +24,7 @@ class QuadrupedEnv(gym.Env):
     def __init__(self, robot_config: Optional[str] = None, 
                  model_path: Optional[str] = None,
                  sim_config_path: Optional[str] = None,
+                 rl_config_path: Optional[str] = None,
                  ref_base_lin_vel: Optional[np.ndarray] = None,
                  ref_base_ang_vel: Optional[np.ndarray] = None):
         """初始化环境
@@ -38,10 +39,17 @@ class QuadrupedEnv(gym.Env):
             self.robot = ConfigLoader.load_builtin_config('go1')
         else:
             self.robot = ConfigLoader.load_robot_config(robot_config)
+
         if sim_config_path is None:
             sim_config_path = 'sim_config.yaml'
         self.sim_config_path = sim_config_path
-        self.sim_config = ConfigLoader.load_sim_config(sim_config_path)     
+        self.sim_config = ConfigLoader.load_sim_config(sim_config_path)   
+
+        if rl_config_path is None:
+            rl_config_path = 'rl_config.yaml'
+        self.rl_config_path = rl_config_path
+        self.rl_config = ConfigLoader.load_rl_config(rl_config_path)
+        
         if model_path is None:
             module_dir = os.path.dirname(__file__)
             model_path = os.path.join(module_dir, 'assets', 'robot', 'go1', 'scene.xml')
@@ -58,6 +66,9 @@ class QuadrupedEnv(gym.Env):
         self.state: Optional[QuadrupedState] = None
         self.ref_base_lin_vel = ref_base_lin_vel if ref_base_lin_vel is not None else np.zeros(3)
         self.ref_base_ang_vel = ref_base_ang_vel if ref_base_ang_vel is not None else np.zeros(3)
+        self.base_lin_vel_noise_std = self.rl_config.get('obs_noise', {}).get(
+            'base_lin_vel_std', 0.01
+        )
         
         self.current_step = 0
         self.max_steps = 1000
@@ -71,9 +82,10 @@ class QuadrupedEnv(gym.Env):
         self._swing_geom_ids = None
         
         n_dof = self.robot.get_total_dof()  # 12 (3 DOF per leg * 4 legs) 
-        # 观测空间：基座(13) + 每条腿关节状态(3*3+3*3+3*3=27) = 40维
-        # [pos(3), quat(4), lin_vel(3), ang_vel(3), qpos(12), qvel(12)]
-        obs_dim = 3 + 4 + 3 + 3 + 12 + 12
+        # 观测空间（RL）：关节角度、关节速度、IMU姿态(roll,pitch)、
+        # 基座线速度(带噪声)、足端压力标量、动作历史
+        # [qpos(12), qvel(12), roll_pitch(2), lin_vel(3), command(3), foot_pressure(4), prev_action(12)]
+        obs_dim = 12 + 12 + 2 + 3 + 3 + 4 + 12
         self.observation_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
@@ -81,13 +93,33 @@ class QuadrupedEnv(gym.Env):
             dtype=np.float32
         )
         
-        # 动作空间：关节力矩 (12,)
+        # 动作空间：关节位置偏移（相对于默认站姿）
+        action_cfg = self.rl_config.get('action', {})
+        self.action_range = float(action_cfg.get('range', 1.0))
+        self.action_offset_scale = float(action_cfg.get('offset_scale', 0.5))
+        self.action_max_delta = float(action_cfg.get('max_delta', 0.1))
+        smooth_cfg = action_cfg.get('smooth', {})
+        self.action_smooth_type = str(smooth_cfg.get('type', 'none')).lower()
+        self.action_smooth_alpha = float(smooth_cfg.get('alpha', 0.2))
+        self.action_smooth_max_delta = float(smooth_cfg.get('max_delta', self.action_max_delta))
         self.action_space = spaces.Box(
-            low=-30.0,
-            high=30.0,
+            low=-self.action_range,
+            high=self.action_range,
             shape=(n_dof,),
             dtype=np.float32
         )
+        self.stand_pose_qpos = np.array([0.0, 0.7, -1.4] * 4, dtype=np.float32)
+        self.prev_action = np.zeros(n_dof, dtype=np.float32)
+        self.kp = float(self.robot.swing_kp)
+        self.kd = float(self.robot.swing_kd)
+        reward_cfg = self.rl_config.get('reward', {})
+        self.reward_vel_sigma = float(reward_cfg.get('vel_sigma', 0.25))
+        weights = reward_cfg.get('weights', {})
+        self.reward_w_vel = float(weights.get('vel', 1.0))
+        self.reward_w_alive = float(weights.get('alive', 0.2))
+        self.reward_w_tilt = float(weights.get('tilt', 0.5))
+        self.reward_w_energy = float(weights.get('energy', 0.0001))
+        self.reward_alive = float(reward_cfg.get('alive', 1.0))
     
     def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[np.ndarray, Dict]:
         """重置环境
@@ -121,6 +153,7 @@ class QuadrupedEnv(gym.Env):
         self.update_state_from_mujoco()
         
         self.current_step = 0
+        self.prev_action = np.zeros(self.action_space.shape, dtype=np.float32)
         
         obs = self.get_observation()
         info = self.get_info()
@@ -138,7 +171,7 @@ class QuadrupedEnv(gym.Env):
         Returns:
             观测、奖励、完成标志、信息字典
         """
-        # 设置控制力矩
+        # 设置控制力矩（MPC 直接输出力矩）
         self.data.ctrl[:] = action
         
         # 执行一步仿真
@@ -150,8 +183,8 @@ class QuadrupedEnv(gym.Env):
         # 获取观测
         obs = self.get_observation()
         
-        # 计算奖励（简单奖励：保持身体高度）
-        reward = 0.0  
+        # 计算奖励
+        reward, reward_info = self._compute_reward()
         
         # 检查是否完成
         terminated = False
@@ -162,6 +195,7 @@ class QuadrupedEnv(gym.Env):
         
         # 信息字典
         info = {'step': self.current_step}
+        info.update(reward_info)
         
         return obs, reward, terminated, truncated, info
     
@@ -285,19 +319,25 @@ class QuadrupedEnv(gym.Env):
         """从当前状态生成观测向量（用于RL/控制）
         
         Returns:
-            观测向量 (obs_dim,) = 37维
-            [base_pos(3, 世界坐标系), base_quat(4), 
-             base_lin_vel(3, 基座坐标系), base_ang_vel(3, 基座坐标系), 
-             joint_qpos(12), joint_qvel(12)]
+            观测向量 (obs_dim,)
+            [joint_qpos(12), joint_qvel(12), roll_pitch(2),
+             base_lin_vel(3), command(3), foot_pressure(4), prev_action(12)]
         """
         if self.state is None:
             return np.zeros(self.observation_space.shape, dtype=np.float32)
         
         # 基座状态（速度使用基座坐标系，更适合本体感知）
-        base_pos = self.state.base.pos  # (3,) 世界坐标系
-        base_quat = self.state.base.quat  # (4,)
         base_lin_vel = self.state.base.lin_vel  # (3,) 基座坐标系
-        base_ang_vel = self.state.base.ang_vel  # (3,) 基座坐标系
+        if self.base_lin_vel_noise_std > 0:
+            base_lin_vel = base_lin_vel + np.random.normal(
+                0.0, self.base_lin_vel_noise_std, size=3
+            )
+        roll_pitch = self.state.base.euler[:2].copy()
+        command = np.array([
+            self.ref_base_lin_vel[0],
+            self.ref_base_lin_vel[1],
+            self.ref_base_ang_vel[2],
+        ], dtype=np.float32)
 
         joint_qpos = np.concatenate([
             self.state.FL.qpos,
@@ -312,15 +352,23 @@ class QuadrupedEnv(gym.Env):
             self.state.RL.qvel,
             self.state.RR.qvel,
         ])  # (12,)
+
+        foot_pressure = np.array([
+            self.state.FL.contact_normal_force,
+            self.state.FR.contact_normal_force,
+            self.state.RL.contact_normal_force,
+            self.state.RR.contact_normal_force,
+        ], dtype=np.float32)
         
         # 组合观测
         obs = np.concatenate([
-            base_pos,
-            base_quat,
-            base_lin_vel,
-            base_ang_vel,
             joint_qpos,
             joint_qvel,
+            roll_pitch,
+            base_lin_vel,
+            command,
+            foot_pressure,
+            self.prev_action,
         ], dtype=np.float32)
         
         return obs
@@ -359,6 +407,92 @@ class QuadrupedEnv(gym.Env):
             'step': self.current_step,
             'time': self.current_step * self.dt,
         }
+
+    def _compute_reward(self) -> Tuple[float, Dict[str, float]]:
+        if self.state is None:
+            return 0.0, {}
+
+        vel_cmd = np.array([
+            self.ref_base_lin_vel[0],
+            self.ref_base_lin_vel[1],
+            self.ref_base_ang_vel[2],
+        ], dtype=np.float32)
+        vel_act = np.array([
+            self.state.base.lin_vel_world[0],
+            self.state.base.lin_vel_world[1],
+            self.state.base.ang_vel_world[2],
+        ], dtype=np.float32)
+
+        vel_err = vel_cmd - vel_act
+        sigma = max(self.reward_vel_sigma, 1e-6)
+        r_vel = np.exp(-np.dot(vel_err, vel_err) / sigma)
+
+        roll_pitch = self.state.base.euler[:2]
+        p_tilt = float(np.dot(roll_pitch, roll_pitch))
+
+        tau = self.state.tau_ctrl if self.state.tau_ctrl is not None else np.zeros(12)
+        joint_qvel = np.concatenate([
+            self.state.FL.qvel,
+            self.state.FR.qvel,
+            self.state.RL.qvel,
+            self.state.RR.qvel,
+        ])
+        p_energy = float(np.sum(np.abs(tau * joint_qvel)))
+
+        reward = (
+            self.reward_w_vel * r_vel
+            + self.reward_w_alive * self.reward_alive
+            - self.reward_w_tilt * p_tilt
+            - self.reward_w_energy * p_energy
+        )
+        info = {
+            'r_vel': float(r_vel),
+            'r_alive': float(self.reward_alive),
+            'p_tilt': float(p_tilt),
+            'p_energy': float(p_energy),
+            'reward': float(reward),
+        }
+        return float(reward), info
+
+    def map_rl_action_to_torque(self, rl_action: np.ndarray) -> np.ndarray:
+        """将 RL 动作（关节位置偏移）映射为关节力矩，不影响 step。
+
+        Args:
+            rl_action: (12,) 关节位置偏移动作，范围建议在 [-1, 1]
+
+        Returns:
+            tau: (12,) 关节力矩
+        """
+        rl_action = np.clip(rl_action, -self.action_range, self.action_range)
+        target_offset = rl_action * self.action_offset_scale
+        if self.action_smooth_type == 'lowpass':
+            alpha = np.clip(self.action_smooth_alpha, 0.0, 1.0)
+            smoothed_offset = (1.0 - alpha) * self.prev_action + alpha * target_offset
+        elif self.action_smooth_type == 'rate_limit':
+            delta = target_offset - self.prev_action
+            max_delta = self.action_smooth_max_delta
+            delta = np.clip(delta, -max_delta, max_delta)
+            smoothed_offset = self.prev_action + delta
+        else:
+            smoothed_offset = target_offset
+
+        q_des = self.stand_pose_qpos + smoothed_offset
+        qpos = np.concatenate([
+            self.state.FL.qpos,
+            self.state.FR.qpos,
+            self.state.RL.qpos,
+            self.state.RR.qpos,
+        ])
+        qvel = np.concatenate([
+            self.state.FL.qvel,
+            self.state.FR.qvel,
+            self.state.RL.qvel,
+            self.state.RR.qvel,
+        ])
+        tau = self.kp * (q_des - qpos) + self.kd * (0.0 - qvel)
+
+        self.prev_action = smoothed_offset.astype(np.float32).copy()
+        return tau.astype(np.float32)
     
     def _setup_joint_mapping(self):
         """设置关节索引映射

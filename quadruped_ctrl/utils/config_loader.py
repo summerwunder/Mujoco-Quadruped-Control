@@ -145,6 +145,31 @@ class ConfigLoader:
         return sim_config
 
     @staticmethod
+    def load_rl_config(config_path: str = 'rl_config.yaml') -> Dict[str, Any]:
+        """加载强化学习配置
+
+        Args:
+            config_path: RL 配置文件路径（相对于 config 目录）
+
+        Returns:
+            RL 配置字典
+        """
+        if not os.path.isabs(config_path):
+            module_dir = os.path.dirname(__file__)
+            config_path = os.path.join(module_dir, '..', 'config', config_path)
+
+        if not os.path.exists(config_path):
+            raise FileNotFoundError(f"RL config file not found: {config_path}")
+
+        with open(config_path, 'r') as f:
+            rl_config = yaml.safe_load(f)
+
+        if rl_config is None:
+            raise ValueError(f"Empty rl config file: {config_path}")
+
+        return rl_config
+
+    @staticmethod
     def load_gait_params(config_path: str = 'sim_config.yaml', gait_name: Optional[str] = None) -> Dict[str, Any]:
         """加载 gait 配置并返回指定 gait 或所有 gait 的参数。
 

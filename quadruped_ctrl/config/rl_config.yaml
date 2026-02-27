@@ -1,0 +1,23 @@
+# RL-specific configuration (separate from sim_config)
+
+obs_noise:
+  base_lin_vel_std: 0.01
+
+
+action:
+  range: 0.5
+  offset_scale: 0.5
+  max_delta: 0.1
+  smooth:
+    type: "lowpass"  # "none" | "lowpass" | "rate_limit"
+    alpha: 0.2     # for lowpass
+    max_delta: 0.1 # for rate_limit
+
+reward:
+  vel_sigma: 0.25
+  weights:
+    vel: 2.0
+    alive: 0.2
+    tilt: 0.5
+    energy: 0.0001
+  alive: 1.0
