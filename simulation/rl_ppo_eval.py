@@ -14,7 +14,7 @@ class RLActionWrapper(gym.Wrapper):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, required=True)
+    parser.add_argument('--model', type=str, default='runs/ppo/models/best_model.zip')
     parser.add_argument('--steps', type=int, default=30000)
     parser.add_argument('--command-vx', type=float, default=0.4)
     parser.add_argument('--command-vy', type=float, default=0.0)

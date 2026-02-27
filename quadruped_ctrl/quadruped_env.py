@@ -12,6 +12,7 @@ import gymnasium as gym
 from gymnasium import spaces
 from typing import Dict, Tuple, Optional, Any
 from .planning.swing_trajectory_generator import SwingTrajectoryGenerator
+from .planning.periodic_gait_generator import PeriodicGaitGenerator
 from .utils.visual import plot_swing_trajectory, render_vector, render_sphere
 from .datatypes import QuadrupedState, RobotConfig, Trajectory, LegJointMap, BaseState
 from .utils.config_loader import ConfigLoader
@@ -83,9 +84,10 @@ class QuadrupedEnv(gym.Env):
         
         n_dof = self.robot.get_total_dof()  # 12 (3 DOF per leg * 4 legs) 
         # 观测空间（RL）：关节角度、关节速度、IMU姿态(roll,pitch)、
-        # 基座线速度(带噪声)、足端压力标量、动作历史
-        # [qpos(12), qvel(12), roll_pitch(2), lin_vel(3), command(3), foot_pressure(4), prev_action(12)]
-        obs_dim = 12 + 12 + 2 + 3 + 3 + 4 + 12
+        # 基座线速度(带噪声)、足端速度、接触信号(二值)、动作历史
+        # [qpos(12), qvel(12), roll_pitch(2), lin_vel(3), command(3), 
+        #  foot_vel(12), contact_binary(4), prev_action(12)]
+        obs_dim = 12 + 12 + 2 + 3 + 3 + 12 + 4 + 12
         self.observation_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
@@ -113,6 +115,7 @@ class QuadrupedEnv(gym.Env):
         self.current_action = np.zeros(n_dof, dtype=np.float32)  # 用于 RL 动作变化惩罚
         self.kp = float(self.robot.swing_kp)
         self.kd = float(self.robot.swing_kd)
+
         reward_cfg = self.rl_config.get('reward', {})
         self.reward_vel_sigma = float(reward_cfg.get('vel_sigma', 0.25))
         weights = reward_cfg.get('weights', {})
@@ -121,7 +124,27 @@ class QuadrupedEnv(gym.Env):
         self.reward_w_tilt = float(weights.get('tilt', 0.5))
         self.reward_w_energy = float(weights.get('energy', 0.0001))
         self.reward_w_action_delta = float(weights.get('action_delta', 0.1))
+        self.reward_w_swing = float(weights.get('swing', 0.5))
+        self.reward_w_contact = float(weights.get('contact', 0.5))
         self.reward_alive = float(reward_cfg.get('alive', 1.0))
+        
+        # 初始化步态生成器（从sim_config.yaml读取）
+        gait_cfg = self.sim_config.get('gait', {})
+        active_gait_name = gait_cfg.get('active', 'trot')
+        gaits = gait_cfg.get('gaits', {})
+        active_gait = gaits.get(active_gait_name, {})
+        duty_factor = float(active_gait.get('duty_factor', 0.6))
+        step_freq = float(active_gait.get('step_freq', 1.4))
+        phase_offsets = active_gait.get('phase_offsets', [0.5, 1.0, 1.0, 0.5])
+        self.gait_generator = PeriodicGaitGenerator(
+            duty_factor=duty_factor,
+            step_freq=step_freq,
+            phase_offsets=phase_offsets
+        )
+        if self.verbose:
+            print(f"[GaitConfig] Active gait: {active_gait_name}")
+            print(f"  duty_factor={duty_factor}, step_freq={step_freq}, period={self.gait_generator.get_gait_period():.3f}s")
+            print(f"  phase_offsets={phase_offsets}")
     
     def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[np.ndarray, Dict]:
         """重置环境
@@ -322,9 +345,9 @@ class QuadrupedEnv(gym.Env):
         """从当前状态生成观测向量（用于RL/控制）
         
         Returns:
-            观测向量 (obs_dim,)
+            观测向量 (60,)
             [joint_qpos(12), joint_qvel(12), roll_pitch(2),
-             base_lin_vel(3), command(3), foot_pressure(4), prev_action(12)]
+             base_lin_vel(3), command(3), foot_vel(12), contact_binary(4), prev_action(12)]
         """
         if self.state is None:
             return np.zeros(self.observation_space.shape, dtype=np.float32)
@@ -355,12 +378,22 @@ class QuadrupedEnv(gym.Env):
             self.state.RL.qvel,
             self.state.RR.qvel,
         ])  # (12,)
-
-        foot_pressure = np.array([
-            self.state.FL.contact_normal_force,
-            self.state.FR.contact_normal_force,
-            self.state.RL.contact_normal_force,
-            self.state.RR.contact_normal_force,
+        
+        # 足端速度（基座坐标系）
+        foot_vel = np.concatenate([
+            self.state.FL.foot_vel,
+            self.state.FR.foot_vel,
+            self.state.RL.foot_vel,
+            self.state.RR.foot_vel,
+        ])  # (12,)
+        
+        # 接触信号（二值化：接触力 > 0.1N 则为 1.0）
+        contact_threshold = 0.1
+        contact_binary = np.array([
+            self.state.FL.contact_state,
+            self.state.FR.contact_state,
+            self.state.RL.contact_state,
+            self.state.RR.contact_state,
         ], dtype=np.float32)
         
         # 组合观测
@@ -370,7 +403,8 @@ class QuadrupedEnv(gym.Env):
             roll_pitch,
             base_lin_vel,
             command,
-            foot_pressure,
+            foot_vel,
+            contact_binary,
             self.prev_action,
         ], dtype=np.float32)
         
@@ -445,6 +479,31 @@ class QuadrupedEnv(gym.Env):
         # 动作变化惩罚
         action_delta = np.linalg.norm(self.current_action - self.prev_action)
         p_action_delta = float(action_delta)
+        
+        # 摆动奖励：鼓励摆动阶段的足端速度
+        # 使用足端速度而不仅仅是关节速度，反制micro-vibration
+        current_time = self.current_step * self.dt
+        r_swing = 0.0
+        leg_objects = [self.state.FL, self.state.FR, self.state.RL, self.state.RR]
+        for leg_idx, leg in enumerate(leg_objects):
+            if self.gait_generator.is_swing_phase(leg_idx, current_time):
+                # 足端速度（基座坐标系）的l2范数
+                foot_speed = np.linalg.norm(leg.foot_vel)
+                r_swing += foot_speed
+        r_swing = float(r_swing)
+        
+        # 接触一致性惩罚：强制实际接触状态与步态计划对齐
+        # p_contact = sum((c_actual - c_target)^2)
+        p_contact = 0.0
+        contact_threshold = 0.1
+        for leg_idx, leg in enumerate(leg_objects):
+            # 二值化接触信号：接触力 > 0.1N 则认为接触
+            contact_actual = 1.0 if leg.contact_normal_force > contact_threshold else 0.0
+            contact_target = self.gait_generator.get_contact_target(leg_idx, current_time)
+            # 计算平方误差
+            contact_error = contact_actual - contact_target
+            p_contact += contact_error ** 2
+        p_contact = float(p_contact)
 
         reward = (
             self.reward_w_vel * r_vel
@@ -452,6 +511,8 @@ class QuadrupedEnv(gym.Env):
             - self.reward_w_tilt * p_tilt
             - self.reward_w_energy * p_energy
             - self.reward_w_action_delta * p_action_delta
+            + self.reward_w_swing * r_swing
+            - self.reward_w_contact * p_contact
         )
         info = {
             'r_vel': float(r_vel),
@@ -459,6 +520,8 @@ class QuadrupedEnv(gym.Env):
             'p_tilt': float(p_tilt),
             'p_energy': float(p_energy),
             'p_action_delta': float(p_action_delta),
+            'r_swing': float(r_swing),
+            'p_contact': float(p_contact),
             'reward': float(reward),
         }
         return float(reward), info
@@ -476,12 +539,16 @@ class QuadrupedEnv(gym.Env):
         target_offset = rl_action * self.action_offset_scale
         if self.action_smooth_type == 'lowpass':
             alpha = np.clip(self.action_smooth_alpha, 0.0, 1.0)
-            smoothed_offset = (1.0 - alpha) * self.prev_action + alpha * target_offset
+            # 平滑：在offset空间中混合
+            prev_offset = self.prev_action * self.action_offset_scale
+            smoothed_offset = (1.0 - alpha) * prev_offset + alpha * target_offset
         elif self.action_smooth_type == 'rate_limit':
-            delta = target_offset - self.prev_action
+            # 平滑：在offset空间中限制速率
+            prev_offset = self.prev_action * self.action_offset_scale
+            delta = target_offset - prev_offset
             max_delta = self.action_smooth_max_delta
             delta = np.clip(delta, -max_delta, max_delta)
-            smoothed_offset = self.prev_action + delta
+            smoothed_offset = prev_offset + delta
         else:
             smoothed_offset = target_offset
 
@@ -500,8 +567,9 @@ class QuadrupedEnv(gym.Env):
         ])
         tau = self.kp * (q_des - qpos) + self.kd * (0.0 - qvel)
 
-        self.prev_action = smoothed_offset.astype(np.float32).copy()
-        self.current_action = rl_action.astype(np.float32).copy()  # 记录当前 RL 原始动作
+        # 更新动作历史：prev <- current, current <- new
+        self.prev_action = self.current_action.astype(np.float32).copy()
+        self.current_action = rl_action.astype(np.float32).copy()
         return tau.astype(np.float32)
     
     def _setup_joint_mapping(self):

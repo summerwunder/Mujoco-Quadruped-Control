@@ -61,6 +61,85 @@ class PeriodicGaitGenerator:
         """手动切换步态，例如从 Trot 切换到 Pace"""
         self.phase_offsets = np.array(offsets)
         self.stored_phase_offsets = np.array(offsets)
+    
+    # ============ RL-specific methods for gait-aware reward shaping ============
+    
+    def get_gait_period(self) -> float:
+        """获取步态周期
+        
+        Returns:
+            步态周期（秒），= 1 / step_freq
+        """
+        if self.step_freq <= 0:
+            return 1.0
+        return 1.0 / self.step_freq
+    
+    def get_gait_phase(self, current_time: float) -> float:
+        """计算当前步态周期内的相位 [0, 1)
+        
+        Args:
+            current_time: 当前绝对时间（秒）
+        
+        Returns:
+            相位值，范围 [0, 1)，其中 0 表示周期开始，1 表示周期结束
+        """
+        gait_period = self.get_gait_period()
+        if gait_period <= 0:
+            return 0.0
+        # 使用模运算获得周期内的时间位置
+        time_in_cycle = current_time % gait_period
+        phase = time_in_cycle / gait_period
+        return float(phase)
+    
+    def is_swing_phase(self, leg_idx: int, current_time: float) -> bool:
+        """判断指定腿是否处于摆动阶段
+        
+        Args:
+            leg_idx: 腿索引 (0=FL, 1=FR, 2=RL, 3=RR)
+            current_time: 当前绝对时间（秒）
+        
+        Returns:
+            True 如果腿在摆动阶段，False 如果在站立阶段
+        
+        注：摆动阶段 = 不在站立期间，站立期间长度 = duty_factor * gait_period
+        """
+        if leg_idx < 0 or leg_idx >= 4:
+            return False
+        
+        # 计算该腿相对于周期的相位位置（考虑offset）
+        phase_offset = self.phase_offsets[leg_idx]
+        current_phase = self.get_gait_phase(current_time)
+        leg_phase = (current_phase + phase_offset) % 1.0
+        
+        # 摆动阶段 = 不在站立期间
+        swing_start = self.duty_factor
+        is_swing = leg_phase >= swing_start
+        
+        return is_swing
+    
+    def get_contact_target(self, leg_idx: int, current_time: float) -> float:
+        """根据步态计划获取期望的接触状态
+        
+        Args:
+            leg_idx: 腿索引 (0=FL, 1=FR, 2=RL, 3=RR)
+            current_time: 当前绝对时间（秒）
+        
+        Returns:
+            1.0 表示腿应该接触地面（站立阶段）
+            0.0 表示腿不应该接触地面（摆动阶段）
+        """
+        if leg_idx < 0 or leg_idx >= 4:
+            return 0.0
+        
+        # 计算该腿相对于周期的相位位置（考虑offset）
+        phase_offset = self.phase_offsets[leg_idx]
+        current_phase = self.get_gait_phase(current_time)
+        leg_phase = (current_phase + phase_offset) % 1.0
+        
+        # 接触阶段 = 在站立期间
+        should_contact = leg_phase < self.duty_factor
+        
+        return 1.0 if should_contact else 0.0
         
 if __name__ == '__main__':
     # 模拟 Trot 步态：对角腿相位差 0.5

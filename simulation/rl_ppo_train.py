@@ -20,7 +20,7 @@ def make_env(seed: int, command: np.ndarray):
     def _init():
         env = QuadrupedEnv(
             robot_config='robot/go1.yaml',
-            model_path='quadruped_ctrl/assets/robot/go1/scene_terrain.xml',
+            model_path='quadruped_ctrl/assets/robot/go1/scene.xml',
             sim_config_path='sim_config.yaml',
             rl_config_path='rl_config.yaml',
             ref_base_lin_vel=command[:3],
@@ -66,7 +66,7 @@ def main():
         eval_env,
         best_model_save_path=args.model_dir,
         log_path=args.log_dir,
-        eval_freq=100000,
+        eval_freq=10000,
         deterministic=True,
     )
 
@@ -74,7 +74,7 @@ def main():
         policy='MlpPolicy',
         env=vec_env,
         learning_rate=3e-4,
-        n_steps=4096,
+        n_steps=2048,
         batch_size=256,
         gamma=0.99,
         gae_lambda=0.95,
