@@ -40,7 +40,7 @@ def main() -> None:
     last_render_time = 0
     while True:
         step_start = time.time()
-        if step % 300 == 0 and ref_lin_vel[0] <= 1.0:
+        if step % 300 == 0 and ref_lin_vel[0] <= 0.5:
             ref_lin_vel += np.array([0.1, 0.0, 0.0], dtype=np.float64)  # 每300步增加0.1m/s的前向速度
             print(f"\n=== 更新参考线速度: {ref_lin_vel} ===\n")
         state = env.get_state()
