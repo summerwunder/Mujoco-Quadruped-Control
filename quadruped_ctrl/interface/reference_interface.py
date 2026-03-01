@@ -129,9 +129,12 @@ class ReferenceInterface:
         # TODO: only test velocity tracking on flat terrain
         # ref_pos = current_state.base.pos.copy()
         # TODO: 目前只考虑 Roll 和 Pitch ，YAW应该是任务为导向
-        reference_orientation =  [terrain_roll, terrain_pitch, 0]    
-        # # TODO: 先不考虑地形，保持身体姿态水平
-        # reference_orientation = [0, 0, 0]
+        # TODO：会有一个持续的负的 Pitch 导致机器人一直前倾，暂时先加个偏置抵消掉
+        # 头部（集成了相机和雷达）具有一定的重量 。
+        # 如果你的单刚体模型（SRBD）假设质量是均匀分布的，
+        # 而没有考虑头部载荷导致的质心前移，MPC 算出的足底力分配就会不足以支撑前端，导致“低头” 。
+        reference_orientation =  [-terrain_roll, -terrain_pitch-4e-1, 0]   
+  
         # 中心化：使用当前机器人位置作为原点
         center_pos = current_state.base.pos.copy()
         

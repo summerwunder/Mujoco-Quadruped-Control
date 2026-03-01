@@ -8,13 +8,13 @@ from quadruped_ctrl.controllers.controller_factory import ControllerFactory
 from quadruped_ctrl.interface.reference_interface import ReferenceInterface
 from quadruped_ctrl.interface.wb_interface import WBInterface
 '''
-full stance 站立测试支撑腿 + 可视化参考点、接触力等
+MPC坡度行走测试 - 测试机器狗在斜坡上行走时身体姿态是否能够跟随坡度
 '''
 
 def main() -> None:
     env = QuadrupedEnv(
         robot_config='robot/go1.yaml',
-        model_path='quadruped_ctrl/assets/robot/go1/scene.xml',
+        model_path='quadruped_ctrl/assets/robot/go1/scene_slope.xml',
         sim_config_path='sim_config.yaml'
     )
     mujoco.mj_resetDataKeyframe(env.model, env.data, 0)
@@ -34,14 +34,25 @@ def main() -> None:
         "RL": np.zeros(3, dtype=np.float64),
         "RR": np.zeros(3, dtype=np.float64),
     }
-    ref_lin_vel = np.array([-0.1, 0.0, 0.0], dtype=np.float64)
+    
+    # 设置向前移动速度，让机器狗上坡
+    ref_lin_vel = np.array([0.3, 0.0, 0.0], dtype=np.float64)
     ref_ang_vel = np.zeros(3, dtype=np.float64)
+    
     step = 0
     last_render_time = 0
+    
+    print("=" * 80)
+    print("MPC 坡度行走测试")
+    print("=" * 80)
+    print(f"场景文件: scene_slope.xml")
+    print(f"坡度角度: -0.25 rad (约 -14.3 度)")
+    print(f"目标: 机器狗身体姿态应该跟随坡度倾斜，而不是保持水平")
+    print("=" * 80)
+    
     while True:
         step_start = time.time()
-        if step % 300 == 0 and ref_lin_vel[0] <= 0.5:
-            ref_lin_vel += np.array([0.1, 0.0, 0.0], dtype=np.float64)  # 每300步增加0.1m/s的前向速度
+        
         state = env.get_state()
         com_pos = state.base.com.copy()
 
@@ -115,27 +126,24 @@ def main() -> None:
                 break
            
         if step % 300 == 0:
-            # 打印状态监控信息
+            # 打印状态监控信息，特别关注pitch角度
             num_contact = sum([state.FL.contact_state, state.FR.contact_state, 
                                 state.RL.contact_state, state.RR.contact_state])
             base_height = state.base.pos[2]
-            print(f"步数: {step:5d} | 时间: {env.data.time:6.2f}s | "
-                    f"支撑腿数: {num_contact} | 身体高度: {base_height:.3f}m")
+            roll, pitch, yaw = state.base.euler
+            print(f"\n步数: {step:5d} | 时间: {env.data.time:6.2f}s | 支撑腿数: {num_contact} | 身体高度: {base_height:.3f}m")
+            print(f"  【关键】pitch角度: {pitch:.3f} rad ({np.degrees(pitch):.1f}°) - 应该约为 -0.25 rad (-14.3°) 以匹配坡度")
+            print(f"  roll角度: {roll:.3f} rad, yaw角度: {yaw:.3f} rad")
             print("  当前状态:")
             print(f"    base_pos: {np.array2string(state.base.pos, precision=3)}")
             print(f"    base_lin_vel: {np.array2string(state.base.lin_vel_world, precision=3)}")
-            print(f"    base_euler: {np.array2string(state.base.euler, precision=3)}")
+            print(f"    base_euler (r,p,y): {np.array2string(state.base.euler, precision=3)}")
             print(f"    base_ang_vel: {np.array2string(state.base.ang_vel_world, precision=3)}")
             print("  参考状态:")
             print(f"    ref_pos: {np.array2string(reference_state.ref_position, precision=3)}")
             print(f"    ref_lin_vel: {np.array2string(reference_state.ref_linear_velocity, precision=3)}")
             print(f"    ref_orient: {np.array2string(np.asarray(reference_state.ref_orientation), precision=3)}")
             print(f"    ref_ang_vel: {np.array2string(np.asarray(reference_state.ref_angular_velocity), precision=3)}")
-            print("  足端参考/当前:")
-            print(f"    FL ref: {np.array2string(reference_state.ref_foot_FL, precision=3)}, cur: {np.array2string(state.FL.foot_pos_world, precision=3)}")
-            print(f"    FR ref: {np.array2string(reference_state.ref_foot_FR, precision=3)}, cur: {np.array2string(state.FR.foot_pos_world, precision=3)}")
-            print(f"    RL ref: {np.array2string(reference_state.ref_foot_RL, precision=3)}, cur: {np.array2string(state.RL.foot_pos_world, precision=3)}")
-            print(f"    RR ref: {np.array2string(reference_state.ref_foot_RR, precision=3)}, cur: {np.array2string(state.RR.foot_pos_world, precision=3)}")
             print(f"  contact_sequence[0]: {contact_sequence[:, 0]}")
 
         step += 1
@@ -146,4 +154,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

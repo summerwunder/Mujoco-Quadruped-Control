@@ -1,4 +1,4 @@
-horizon: 12
+horizon: 15
 grf_max: 150.0
 grf_min: 0.0
 
@@ -6,7 +6,7 @@ grf_min: 0.0
 weights:
   Q_position: [0, 0, 1200]
   Q_velocity: [200, 200, 200]
-  Q_base_angle: [300, 300, 0]
+  Q_base_angle: [30, 30, 0]
   Q_base_angle_rates: [20, 20, 50]
   Q_foot_pos: [100, 100, 100]
   Q_com_position_z_integral: [30]
@@ -22,7 +22,7 @@ R:
 solver:
   use_ddp: false
   use_rti: false
-  num_qp_iterations: 6
+  num_qp_iterations: 10
   as_rti_type: AS-RTI-A  # options: AS-RTI-A, AS-RTI-B, AS-RTI-C, AS-RTI-D
   solver_mode: balance   # options: balance, robust, fast, crazy_speed
   qp_solver_iter_max: 10
