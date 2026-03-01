@@ -306,22 +306,22 @@ if __name__ == "__main__":
     print("=== 地形生成器测试 ===\n")
     
     # 创建地形生成器（使用 go1 机器人）
-    tg = TerrainGenerator(robot_name="go1", output_scene="scene_terrain.xml")
+    tg = TerrainGenerator(robot_name="go1", output_scene="scene_terrain1.xml")
     
-    # 1. 箱子障碍物
-    tg.AddBox(position=[1.5, 0.0, 0.1], euler=[0, 0, 0.0], size=[0.5, 0.5, 0.2])
-    print("  ✓ 箱子障碍物")
+    # # 1. 箱子障碍物
+    # tg.AddBox(position=[1.5, 0.0, 0.1], euler=[0, 0, 0.0], size=[0.5, 0.5, 0.2])
+    # print("  ✓ 箱子障碍物")
     
-    # 2. 台阶
-    tg.AddStairs(init_pos=[2.0, 1.0, 0.0], yaw=0.0, stair_nums=5)
-    print("  ✓ 台阶")
+    # # 2. 台阶
+    # tg.AddStairs(init_pos=[2.0, 1.0, 0.0], yaw=0.0, stair_nums=5)
+    # print("  ✓ 台阶")
     
     # 3. Perlin 噪声地形
     tg.AddPerlinHeighField(
-        position=[0, 2.0, 0.0], 
+        position=[4.0, 0.0, 0.0], 
         size=[2.0, 2.0],
         height_scale=0.15,
-        smooth=50.0
+        smooth=30.0
     )
     
     # 保存场景
