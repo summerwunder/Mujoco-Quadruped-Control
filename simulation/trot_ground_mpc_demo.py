@@ -34,7 +34,7 @@ def main() -> None:
         "RL": np.zeros(3, dtype=np.float64),
         "RR": np.zeros(3, dtype=np.float64),
     }
-    ref_lin_vel = np.array([0.5, 0.0, 0.0], dtype=np.float64)
+    ref_lin_vel = np.array([0.6, 0.0, 0.0], dtype=np.float64)
     ref_ang_vel = np.array([0.0, 0.0, 0.0], dtype=np.float64)
     step = 0
     last_render_time = 0
@@ -88,7 +88,7 @@ def main() -> None:
             last_action = tau_total
 
         env.step(last_action)
-            
+
         # 从 FootholdGenerator 获取准确的抬脚点（由 update_contact_states 自动维护）
         swing_vis = {
             "swing_generator": ref_interface.swing_generator,
@@ -119,9 +119,11 @@ def main() -> None:
             num_contact = sum([state.FL.contact_state, state.FR.contact_state, 
                                 state.RL.contact_state, state.RR.contact_state])
             base_height = state.base.pos[2]
+            
             print(f"步数: {step:5d} | 时间: {env.data.time:6.2f}s | "
                     f"支撑腿数: {num_contact} | 身体高度: {base_height:.3f}m")
             print("  当前状态:")
+            print(f"    is fallen: {env.is_fallen()} | contact_state: {[state.FL.contact_state, state.FR.contact_state, state.RL.contact_state, state.RR.contact_state]}")
             print(f"    base_pos: {np.array2string(state.base.pos, precision=3)}")
             print(f"    base_lin_vel: {np.array2string(state.base.lin_vel_world, precision=3)}")
             print(f"    base_euler: {np.array2string(state.base.euler, precision=3)}")

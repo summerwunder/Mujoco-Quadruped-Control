@@ -123,9 +123,6 @@ def main() -> None:
                                 state.RL.contact_state, state.RR.contact_state])
             base_height = state.base.pos[2]
             roll, pitch, yaw = state.base.euler
-            print(f"\n步数: {step:5d} | 时间: {env.data.time:6.2f}s | 支撑腿数: {num_contact} | 身体高度: {base_height:.3f}m")
-            print(f"  【关键】pitch角度: {pitch:.3f} rad ({np.degrees(pitch):.1f}°) - 应该约为 -0.25 rad (-14.3°) 以匹配坡度")
-            print(f"  roll角度: {roll:.3f} rad, yaw角度: {yaw:.3f} rad")
             print("  当前状态:")
             print(f"    base_pos: {np.array2string(state.base.pos, precision=3)}")
             print(f"    base_lin_vel: {np.array2string(state.base.lin_vel_world, precision=3)}")

@@ -32,14 +32,14 @@ render:
   show_footholds: false
 
 gait:
-  active: "trot"  # options: trot, pace, crawl, full_stance
+  active: "trot"  # options: trot, pace, crawl, full_stance, canter
 
   gaits:
     trot:
-      duty_factor: 0.6
-      step_freq: 1.4
+      duty_factor: 0.55
+      step_freq: 1.6
       margin: 0.04
-      phase_offsets: [0.5, 1.0, 1.0, 0.5] # FL, FR, RL, RR
+      phase_offsets: [0, 0.5, 0.5, 0] # FL, FR, RL, RR
     
     pace:
       duty_factor: 0.7
@@ -47,6 +47,18 @@ gait:
       margin: 0.1
       phase_offsets: [0.8, 0.3, 0.8, 0.3]
     
+    canter:
+      duty_factor: 0.4
+      step_freq: 2.0
+      margin: 0.02
+      phase_offsets: [0, 0.33,  0.33,  0.66]
+
+    gallop:
+      duty_factor: 0.3
+      step_freq: 3.5
+      margin: 0.02
+      phase_offsets: [0,  0.05, 0.4, 0.35]
+
     # bounding:
     #   type: 4 
     #   duty_factor: 0.65
