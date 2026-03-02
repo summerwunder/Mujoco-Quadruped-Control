@@ -34,22 +34,6 @@ class PeriodicGaitGenerator:
         phase = time_in_cycle / gait_period
         return float(phase)
     
-    def is_swing_phase(self, leg_idx: int, current_time: float) -> bool:
-        """判断指定腿是否处于摆动阶段 (True = 摆动，False = 站立)
-        
-        Args:
-            leg_idx: 腿索引 (0=FL, 1=FR, 2=RL, 3=RR)
-            current_time: 当前绝对时间（秒）
-        """
-        if leg_idx < 0 or leg_idx >= 4:
-            return False
-        
-        phase_offset = self.phase_offsets[leg_idx]
-        current_phase = self.get_gait_phase(current_time)
-        leg_phase = (current_phase + phase_offset) % 1.0
-        
-        return leg_phase >= self.duty_factor
-    
     def get_contact_target(self, leg_idx: int, current_time: float) -> float:
         """获取期望的接触状态：1.0 = 应该接触，0.0 = 不应该接触
         

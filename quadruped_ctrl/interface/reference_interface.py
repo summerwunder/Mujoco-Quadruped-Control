@@ -87,14 +87,14 @@ class ReferenceInterface:
         # TODO: 调整期望速度，如果机器人处于异常位置
         
         # 更新 gait 的 start/stop 判定
-        self.gait_generator.update_start_and_stop(
-            base_lin_vel=current_state.base.lin_vel_world,
-            base_ang_vel=current_state.base.ang_vel_world,
-            ref_lin_vel=ref_base_lin_vel,
-            ref_ang_vel=ref_base_ang_vel,
-            feet_dist_to_hip_max=current_state.get_max_feet_dist_to_hip(),
-            base_rpy=current_state.base.euler
-        )
+        # self.gait_generator.update_start_and_stop(
+        #     base_lin_vel=current_state.base.lin_vel_world,
+        #     base_ang_vel=current_state.base.ang_vel_world,
+        #     ref_lin_vel=ref_base_lin_vel,
+        #     ref_ang_vel=ref_base_ang_vel,
+        #     feet_dist_to_hip_max=current_state.get_max_feet_dist_to_hip(),
+        #     base_rpy=current_state.base.euler
+        # )
         
         contact_sequence = self.gait_generator.get_horizon_sequence(
             abs_time, 
