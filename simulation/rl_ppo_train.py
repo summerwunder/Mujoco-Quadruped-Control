@@ -40,7 +40,7 @@ def main():
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--log-dir', type=str, default='runs/ppo')
     parser.add_argument('--model-dir', type=str, default='runs/ppo/models')
-    parser.add_argument('--command-vx', type=float, default=0.5)
+    parser.add_argument('--command-vx', type=float, default=0.4)
     parser.add_argument('--command-vy', type=float, default=0.0)
     parser.add_argument('--command-yaw', type=float, default=0.0)
     args = parser.parse_args()
@@ -73,6 +73,7 @@ def main():
     model = PPO(
         policy='MlpPolicy',
         env=vec_env,
+        device='cpu',
         learning_rate=3e-4,
         n_steps=2048,
         batch_size=256,

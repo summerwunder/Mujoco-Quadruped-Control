@@ -15,7 +15,7 @@ class RLActionWrapper(gym.Wrapper):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, default='runs/ppo/models/best_model.zip')
-    parser.add_argument('--steps', type=int, default=30000)
+    parser.add_argument('--steps', type=int, default=4000)
     parser.add_argument('--command-vx', type=float, default=0.4)
     parser.add_argument('--command-vy', type=float, default=0.0)
     parser.add_argument('--command-yaw', type=float, default=0.0)
@@ -25,7 +25,7 @@ def main():
 
     env = QuadrupedEnv(
         robot_config='robot/go1.yaml',
-        model_path='quadruped_ctrl/assets/robot/go1/scene_terrain.xml',
+        model_path='quadruped_ctrl/assets/robot/go1/scene.xml',
         sim_config_path='sim_config.yaml',
         rl_config_path='rl_config.yaml',
         ref_base_lin_vel=command[:3],
@@ -42,9 +42,13 @@ def main():
         if step % 100 == 0:
             print(
                 f"step={step:04d} reward={reward:.4f} "
-                f"r_vel={info.get('r_vel', 0.0):.4f} "
-                f"p_tilt={info.get('p_tilt', 0.0):.4f} "
-                f"p_energy={info.get('p_energy', 0.0):.4f}"
+                f"r_lin={info.get('r_tracking_lin_vel', 0.0):.4f} "
+                f"r_ang={info.get('r_tracking_ang_vel', 0.0):.4f} "
+                f"p_swing={info.get('p_swing_phase', 0.0):.4f} "
+                f"p_fh={info.get('p_footswing_height', 0.0):.4f} "
+                f"p_vz={info.get('p_lin_vel_z', 0.0):.4f} "
+                f"p_slip={info.get('p_feet_slip', 0.0):.4f} "
+                f"p_rate={info.get('p_action_rate', 0.0):.4f}"
             )
         if terminated or truncated:
             obs, info = env.reset()

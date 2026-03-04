@@ -124,7 +124,7 @@ class ConfigLoader:
         Returns:
             仿真配置字典，包含:
             {
-                'optimize': {'use_feedback_linearization': bool, 'use_friction_compensation': bool},
+                'optimize': {'use_swing_tau_forward_optimization': bool, 'use_friction_compensation': bool},
                 'physics': {'dt': float, 'mpc_frequency': int, 'scene': str},
                 'gait': {...}
             }

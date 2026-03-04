@@ -8,7 +8,7 @@ physics:
 verbose: true
 
 optimize:
-  use_feedback_linearization: true
+  use_swing_tau_forward_optimization: true
   use_foothold_optimization: false
 
   use_foothold_constraint: true

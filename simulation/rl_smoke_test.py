@@ -21,21 +21,29 @@ def main():
     obs, info = env.reset()
     print('obs shape:', obs.shape)
 
+    
     for step in range(2000):
         action = env.action_space.sample()
         obs, reward, terminated, truncated, info = env.step(action)
-        r_vel = info.get('r_vel', 0.0)
-        r_swing = info.get('r_swing', 0.0)
-        p_contact = info.get('p_contact', 0.0)
-        p_tilt = info.get('p_tilt', 0.0)
-        p_action_delta = info.get('p_action_delta', 0.0)
+        r_lin  = info.get('r_tracking_lin_vel', 0.0)
+        r_ang  = info.get('r_tracking_ang_vel', 0.0)
+        p_swing = info.get('p_swing_phase',     0.0)
+        p_fh   = info.get('p_footswing_height', 0.0)
+        p_vz   = info.get('p_lin_vel_z',        0.0)
+        p_rate = info.get('p_action_rate',      0.0)
+        p_slip = info.get('p_feet_slip',      0.0)
+
         print(
-            f"step={step:04d} R={reward:7.4f} r_vel={r_vel:.4f} r_swing={r_swing:.4f} "
-            f"p_contact={p_contact:.4f} p_tilt={p_tilt:.6f} p_delta={p_action_delta:.4f}"
+            f"step={step:04d} R={reward:7.4f} "
+            f"r_lin={r_lin:.3f} r_ang={r_ang:.3f} "
+            f"p_swing={p_swing:.3f} p_fh={p_fh:.4f} "
+            f"p_vz={p_vz:.4f} p_slip={p_slip:.4f} p_rate={p_rate:.4f}"
         )
+
+        if terminated:
+            print(f"  ✗ 跌倒终止 at step={step}")
         if terminated or truncated:
             obs, info = env.reset()
-        env.render()
 
 
 if __name__ == '__main__':

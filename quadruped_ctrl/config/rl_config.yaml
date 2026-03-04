@@ -1,7 +1,13 @@
 # RL-specific configuration (separate from sim_config)
 
+obs_scales:
+  dof_pos: 1.0     # 关节角度缩放（单位 rad，通常不缩放）
+  dof_vel: 0.05    # 关节速度缩放（压缩到合理范围）
+  ang_vel: 0.25    # 角速度缩放
+
 obs_noise:
-  base_lin_vel_std: 0.01
+  dof_pos: 0.02    # 关节角度噪声 (rad)
+
 
 
 action:
@@ -13,25 +19,22 @@ action:
     alpha: 0.2     # for lowpass
     max_delta: 0.1 # for rate_limit
 
-# reward:
-#   vel_sigma: 0.25
-#   weights:
-#     vel: 2.0
-#     alive: 0.02
-#     tilt: 0.5
-#     energy: 0.0001
-#     action_delta: 1.0
-#     swing: 0.5      # Reward for foot velocity during swing phase (gait-aware)
-#     contact: 0.5    # Penalty for contact state mismatch with gait schedule
-#   alive: 1.0
 reward:
-  vel_sigma: 0.25
+  # 高斯核宽度
+  tracking_sigma:     0.25   # xy 速度跟踪
+  tracking_sigma_yaw: 0.25   # yaw 跟踪
+  gait_force_sigma:   50.0   # 摆动相跟踪（力）的高斯核宽度
+  gait_vel_sigma:     0.5    # 支撑相跟踪（足端速度）的高斯核宽度
+  footswing_height:   0.06   # 目标摆动高度 (m)
   weights:
-    vel: 10.0       
-    alive: 0.1     
-    tilt: 5.0       
-    energy: 0.0001 
-    action_delta: 0.01 
-    swing: 0.1     
-    contact: 1.0   
-  alive: 1.0
+    tracking_lin_vel:  2.0    # xy 速度跟踪
+    tracking_ang_vel:  2.0    # yaw 跟踪
+    swing_phase_force: 1.0    # 摆动相跟踪（力）（指定正数，代码内取负）
+    feet_slip:         1.0    # 支撑腿足端速度惩罚（高斯形式，与 swing_phase_force 对称）
+    footswing_height:  0.5    # 足摆高度跟踪（指定正数，代码内取负）
+    lin_vel_z:         2.0    # z 方向速度（指定正数，代码内取负）
+    ang_vel_xy:        0.0    # roll/pitch 角速度（指定正数，代码内取负）
+    torques:           0.00002      # 关节力矩（指定正数，代码内取负）
+    dof_vel:           0      # 关节速度（指定正数，代码内取负）
+    action_rate:       0.2     # action smoothing（指定正数，代码内取负）
+    

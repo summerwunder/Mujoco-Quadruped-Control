@@ -52,7 +52,8 @@ def main() -> None:
             current_state=state,
             com_pos=com_pos,
             heightmaps=None,
-            abs_time=env.data.time,
+            abs_time=env.dt * env.state.step_num,
+            # abs_time=env.data.time,
             ref_base_lin_vel=ref_lin_vel,
             ref_base_ang_vel=ref_ang_vel,
         )

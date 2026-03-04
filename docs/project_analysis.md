@@ -445,7 +445,6 @@ target_world = R_wb.T @ target_hip + base_position
 ```yaml
 swing_kp: 500
 swing_kd: 10
-use_feedback_linearization: true
 ```
 
 ### 6.2 参考状态接口 (ReferenceInterface)

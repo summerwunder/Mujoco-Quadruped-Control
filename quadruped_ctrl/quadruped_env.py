@@ -71,8 +71,19 @@ class QuadrupedEnv(gym.Env):
             'base_lin_vel_std', 0.01
         )
         
+        # 观测缩放系数
+        obs_scales_cfg = self.rl_config.get('obs_scales', {})
+        self.obs_scale_dof_pos = float(obs_scales_cfg.get('dof_pos', 1.0))
+        self.obs_scale_dof_vel = float(obs_scales_cfg.get('dof_vel', 0.05))
+        self.obs_scale_ang_vel = float(obs_scales_cfg.get('ang_vel', 0.25))
+        
+        # 观测噪声标准差
+        obs_noise_cfg = self.rl_config.get('obs_noise', {})
+        self.noise_dof_pos  = float(obs_noise_cfg.get('dof_pos',  0.01))
+
+        
         self.current_step = 0
-        self.max_steps = 1000
+        self.max_steps = 2000
         # self.dt = self.model.opt.timestep
         self.dt = self.sim_config.get('physics', {}).get('dt', 0.002)
         self.mu = self.sim_config.get('physics', {}).get('mu', 0.5)
@@ -83,11 +94,11 @@ class QuadrupedEnv(gym.Env):
         self._swing_geom_ids = None
         
         n_dof = self.robot.get_total_dof()  # 12 (3 DOF per leg * 4 legs) 
-        # 观测空间（RL）：关节角度、关节速度、IMU姿态(roll,pitch)、
-        # 基座线速度(带噪声)、足端速度、接触信号(二值)、动作历史
-        # [qpos(12), qvel(12), roll_pitch(2), lin_vel(3), command(3), 
-        #  foot_vel(12), contact_binary(4), prev_action(12)]
-        obs_dim = 12 + 12 + 2 + 3 + 3 + 12 + 4 + 12
+        # 观测空间（RL）：
+        # [projected_gravity(3), command(3), dof_pos(12), dof_vel(12),
+        #  ang_vel(3), contact_binary(4), clock_inputs(4), prev_action(12)]
+        # 共 53 维
+        obs_dim = 3 + 3 + 12 + 12 + 3 + 4 + 4 + 12
         self.observation_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
@@ -117,16 +128,25 @@ class QuadrupedEnv(gym.Env):
         self.kd = float(self.robot.swing_kd)
 
         reward_cfg = self.rl_config.get('reward', {})
-        self.reward_vel_sigma = float(reward_cfg.get('vel_sigma', 0.25))
+        self.tracking_sigma      = float(reward_cfg.get('tracking_sigma',     0.25))
+        self.tracking_sigma_yaw  = float(reward_cfg.get('tracking_sigma_yaw', 0.25))
+        self.gait_force_sigma    = float(reward_cfg.get('gait_force_sigma',   50.0))
+        self.gait_vel_sigma      = float(reward_cfg.get('gait_vel_sigma',     0.5))
+        self.footswing_height    = float(reward_cfg.get('footswing_height',   0.09))
         weights = reward_cfg.get('weights', {})
-        self.reward_w_vel = float(weights.get('vel', 1.0))
-        self.reward_w_alive = float(weights.get('alive', 0.2))
-        self.reward_w_tilt = float(weights.get('tilt', 0.5))
-        self.reward_w_energy = float(weights.get('energy', 0.0001))
-        self.reward_w_action_delta = float(weights.get('action_delta', 0.1))
-        self.reward_w_swing = float(weights.get('swing', 0.5))
-        self.reward_w_contact = float(weights.get('contact', 0.5))
-        self.reward_alive = float(reward_cfg.get('alive', 1.0))
+        self.rw_tracking_lin_vel  = float(weights.get('tracking_lin_vel',  1.0))
+        self.rw_tracking_ang_vel  = float(weights.get('tracking_ang_vel',  0.5))
+        self.rw_swing_phase_force = float(weights.get('swing_phase_force', 0.08))
+        self.rw_footswing_height  = float(weights.get('footswing_height',  0.6))
+        self.rw_lin_vel_z         = float(weights.get('lin_vel_z',         2.0))
+        self.rw_ang_vel_xy        = float(weights.get('ang_vel_xy',        0.05))
+        self.rw_torques           = float(weights.get('torques',           0.00001))
+        self.rw_dof_vel           = float(weights.get('dof_vel',           0.00001))
+        self.rw_action_rate       = float(weights.get('action_rate',       0.01))
+        self.rw_feet_slip         = float(weights.get('feet_slip',         0.04))
+        # 保存上一帧关节速度（用于计算关节加速度，目前未启用）
+        self.prev_joint_qvel = np.zeros(12, dtype=np.float32)
+        
         
         # 初始化步态生成器（从sim_config.yaml读取）
         gait_cfg = self.sim_config.get('gait', {})
@@ -141,10 +161,6 @@ class QuadrupedEnv(gym.Env):
             step_freq=step_freq,
             phase_offsets=phase_offsets
         )
-        if self.verbose:
-            print(f"[GaitConfig] Active gait: {active_gait_name}")
-            print(f"  duty_factor={duty_factor}, step_freq={step_freq}, period={self.gait_generator.get_gait_period():.3f}s")
-            print(f"  phase_offsets={phase_offsets}")
     
     def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[np.ndarray, Dict]:
         """重置环境
@@ -180,7 +196,6 @@ class QuadrupedEnv(gym.Env):
         self.current_step = 0
         self.prev_action = np.zeros(self.action_space.shape, dtype=np.float32)
         self.current_action = np.zeros(self.action_space.shape, dtype=np.float32)
-        
         obs = self.get_observation()
         info = self.get_info()
         
@@ -213,7 +228,7 @@ class QuadrupedEnv(gym.Env):
         reward, reward_info = self._compute_reward()
         
         # 检查是否完成
-        terminated = False
+        terminated = self.is_fallen()
         truncated = self.current_step >= self.max_steps
         
         # 更新步数
@@ -330,7 +345,7 @@ class QuadrupedEnv(gym.Env):
             #             )
         
         self.viewer.cam.lookat[:2] = base_pos[:2]
-        self.viewer.cam.distance = 1.5
+        # self.viewer.cam.distance = 1.5
         self.viewer.sync()
             
         
@@ -345,71 +360,83 @@ class QuadrupedEnv(gym.Env):
         """从当前状态生成观测向量（用于RL/控制）
         
         Returns:
-            观测向量 (60,)
-            [joint_qpos(12), joint_qvel(12), roll_pitch(2),
-             base_lin_vel(3), command(3), foot_vel(12), contact_binary(4), prev_action(12)]
+            观测向量 (53,)
+            [projected_gravity(3), command(3), dof_pos(12), dof_vel(12),
+             ang_vel(3), contact_binary(4), clock_inputs(4), prev_action(12)]
         """
         if self.state is None:
             return np.zeros(self.observation_space.shape, dtype=np.float32)
         
-        # 基座状态（速度使用基座坐标系，更适合本体感知）
-        base_lin_vel = self.state.base.lin_vel  # (3,) 基座坐标系
-        if self.base_lin_vel_noise_std > 0:
-            base_lin_vel = base_lin_vel + np.random.normal(
-                0.0, self.base_lin_vel_noise_std, size=3
-            )
-        roll_pitch = self.state.base.euler[:2].copy()
+        # --- projected gravity (3): 重力向量在基座坐标系中的投影，等价于 roll/pitch 但更直接 ---
+        projected_gravity = self.state.base.gravity_vec.copy().astype(np.float32)  # (3,)
+        
+        # --- command (3): [vx, vy, wz] ---
         command = np.array([
             self.ref_base_lin_vel[0],
             self.ref_base_lin_vel[1],
             self.ref_base_ang_vel[2],
         ], dtype=np.float32)
 
+        # --- dof_pos (12): 关节角度相对默认站姿的偏差，带缩放和噪声 ---
         joint_qpos = np.concatenate([
             self.state.FL.qpos,
             self.state.FR.qpos,
             self.state.RL.qpos,
             self.state.RR.qpos,
-        ])  # (12,)
+        ]).astype(np.float32)  # (12,)
+        dof_pos = (joint_qpos - self.stand_pose_qpos) * self.obs_scale_dof_pos
         
         joint_qvel = np.concatenate([
             self.state.FL.qvel,
             self.state.FR.qvel,
             self.state.RL.qvel,
             self.state.RR.qvel,
-        ])  # (12,)
+        ]).astype(np.float32)  # (12,)
+        dof_vel = joint_qvel * self.obs_scale_dof_vel
         
-        # 足端速度（基座坐标系）
-        foot_vel = np.concatenate([
-            self.state.FL.foot_vel,
-            self.state.FR.foot_vel,
-            self.state.RL.foot_vel,
-            self.state.RR.foot_vel,
-        ])  # (12,)
+        # --- ang_vel (3): 基座角速度（基座坐标系），带缩放和噪声 ---
+        ang_vel = (self.state.base.ang_vel * self.obs_scale_ang_vel).astype(np.float32)  # (3,)
         
-        # 接触信号（二值化：接触力 > 0.1N 则为 1.0）
-        contact_threshold = 0.1
+        # --- contact_binary (4): 二值接触信号 ---
         contact_binary = np.array([
-            self.state.FL.contact_state,
-            self.state.FR.contact_state,
-            self.state.RL.contact_state,
-            self.state.RR.contact_state,
+            float(self.state.FL.contact_state),
+            float(self.state.FR.contact_state),
+            float(self.state.RL.contact_state),
+            float(self.state.RR.contact_state),
         ], dtype=np.float32)
         
-        # 组合观测
+        # 每条腿独立的步态时钟，共 4 条腿 × (sin + cos) = 8 维
+        current_time = self.current_step * self.dt
+        current_phase = self.gait_generator.get_gait_phase(current_time)
+        # FL: phase_offsets[0]
+        phase_FL = (current_phase + self.gait_generator.phase_offsets[0]) % 1.0
+        # FR: phase_offsets[1]
+        phase_FR = (current_phase + self.gait_generator.phase_offsets[1]) % 1.0
+        # RL: phase_offsets[2]
+        phase_RL = (current_phase + self.gait_generator.phase_offsets[2]) % 1.0
+        # RR: phase_offsets[3]
+        phase_RR = (current_phase + self.gait_generator.phase_offsets[3]) % 1.0
+        clock_inputs = np.array([
+            np.sin(2 * np.pi * phase_FL),
+            np.sin(2 * np.pi * phase_FR),
+            np.sin(2 * np.pi * phase_RL),
+            np.sin(2 * np.pi * phase_RR),
+        ], dtype=np.float32)
+        
+        # --- 组合观测 ---
         obs = np.concatenate([
-            joint_qpos,
-            joint_qvel,
-            roll_pitch,
-            base_lin_vel,
-            command,
-            foot_vel,
-            contact_binary,
-            self.prev_action,
+            projected_gravity,   # (3,)
+            command,             # (3,)
+            dof_pos,             # (12,)
+            dof_vel,             # (12,)
+            ang_vel,             # (3,)
+            contact_binary,      # (4,)
+            clock_inputs,        # (4,)
+            self.prev_action,    # (12,)
         ], dtype=np.float32)
         
         return obs
-    
+
     def set_state(self, state: QuadrupedState):
         """设置环境状态
         
@@ -429,10 +456,35 @@ class QuadrupedEnv(gym.Env):
     def is_fallen(self) -> bool:
         """检查机器人是否跌倒
         
+        判断标准：
+        1. 基座高度过低（< 0.2m）
+        2. 姿态角过大（roll 或 pitch > 60度）
+        3. 基座Z轴与世界Z轴夹角过大（翻转检测）
+        
         Returns:
             是否跌倒
         """
-        pass
+        if self.state is None:
+            return False
+        
+        # 1. 检查基座高度
+        base_height = self.state.base.pos[2]
+        if base_height < 0.2: 
+            return True
+        
+        roll, pitch = self.state.base.euler[:2]
+        max_tilt_angle = np.pi / 3 
+        if abs(roll) > max_tilt_angle or abs(pitch) > max_tilt_angle:
+            return True
+        
+        # 3. 检查基座Z轴方向（防止倒立情况）
+        base_z_world = self.state.base.rot_mat[:, 2]  # 基座Z轴在世界坐标系的方向
+        world_z = np.array([0, 0, 1])
+        # 如果基座Z轴与世界Z轴夹角大于90度，说明机器人翻转了
+        if np.dot(base_z_world, world_z) < 0:
+            return True
+        
+        return False
     
     def get_info(self) -> Dict[str, Any]:
         """获取当前环境信息
@@ -449,82 +501,94 @@ class QuadrupedEnv(gym.Env):
         if self.state is None:
             return 0.0, {}
 
-        vel_cmd = np.array([
-            self.ref_base_lin_vel[0],
-            self.ref_base_lin_vel[1],
-            self.ref_base_ang_vel[2],
-        ], dtype=np.float32)
-        vel_act = np.array([
-            self.state.base.lin_vel_world[0],
-            self.state.base.lin_vel_world[1],
-            self.state.base.ang_vel_world[2],
-        ], dtype=np.float32)
-
-        vel_err = vel_cmd - vel_act
-        sigma = max(self.reward_vel_sigma, 1e-6)
-        r_vel = np.exp(-np.dot(vel_err, vel_err) / sigma)
-
-        roll_pitch = self.state.base.euler[:2]
-        p_tilt = float(np.dot(roll_pitch, roll_pitch))
-
-        tau = self.state.tau_ctrl if self.state.tau_ctrl is not None else np.zeros(12)
-        joint_qvel = np.concatenate([
-            self.state.FL.qvel,
-            self.state.FR.qvel,
-            self.state.RL.qvel,
-            self.state.RR.qvel,
-        ])
-        p_energy = float(np.sum(np.abs(tau * joint_qvel)))
-
-        # 动作变化惩罚
-        action_delta = np.linalg.norm(self.current_action - self.prev_action)
-        p_action_delta = float(action_delta)
-        
-        # 摆动奖励：鼓励摆动阶段的足端速度
-        # 使用足端速度而不仅仅是关节速度，反制micro-vibration
         current_time = self.current_step * self.dt
-        r_swing = 0.0
-        leg_objects = [self.state.FL, self.state.FR, self.state.RL, self.state.RR]
-        for leg_idx, leg in enumerate(leg_objects):
-            if self.gait_generator.is_swing_phase(leg_idx, current_time):
-                # 足端速度（基座坐标系）的l2范数
-                foot_speed = np.linalg.norm(leg.foot_vel)
-                r_swing += foot_speed
-        r_swing = float(r_swing)
-        
-        # 接触一致性惩罚：强制实际接触状态与步态计划对齐
-        # p_contact = sum((c_actual - c_target)^2)
-        p_contact = 0.0
-        contact_threshold = 0.1
-        for leg_idx, leg in enumerate(leg_objects):
-            # 二值化接触信号：接触力 > 0.1N 则认为接触
-            contact_actual = 1.0 if leg.contact_normal_force > contact_threshold else 0.0
-            contact_target = self.gait_generator.get_contact_target(leg_idx, current_time)
-            # 计算平方误差
-            contact_error = contact_actual - contact_target
-            p_contact += contact_error ** 2
-        p_contact = float(p_contact)
+        legs = [self.state.FL, self.state.FR, self.state.RL, self.state.RR]
+
+        # --- 1. xy 速度跟踪 ---
+        vel_xy_cmd = np.array([self.ref_base_lin_vel[0], self.ref_base_lin_vel[1]], dtype=np.float64)
+        vel_xy_act = np.array([self.state.base.lin_vel_world[0], self.state.base.lin_vel_world[1]], dtype=np.float64)
+        err_xy = vel_xy_cmd - vel_xy_act
+        r_tracking_lin_vel = float(np.exp(-np.dot(err_xy, err_xy) / max(self.tracking_sigma, 1e-6)))
+
+        # --- 2. yaw 跟踪 ---
+        yaw_cmd = float(self.ref_base_ang_vel[2])
+        yaw_act = float(self.state.base.ang_vel_world[2])
+        r_tracking_ang_vel = float(np.exp(-(yaw_cmd - yaw_act) ** 2 / max(self.tracking_sigma_yaw, 1e-6)))
+
+        # --- 3. 摆动相跟踪（力）: 命令摆动的腿如果有接触力则惩罚 ---
+        # C_cmd = 0 表示应该摆动，[1 - C_cmd] = 1
+        p_swing_phase = 0.0
+        for leg_idx, leg in enumerate(legs):
+            c_cmd = self.gait_generator.get_contact_target(leg_idx, current_time)  # 1=应接地, 0=应摆动
+            swing_mask = 1.0 - c_cmd  # 1=应摆动
+            f_norm_sq = float(np.dot(leg.contact_force, leg.contact_force))
+            p_swing_phase += swing_mask * float(np.exp(-f_norm_sq / max(self.gait_force_sigma, 1e-6)))
+
+        # --- 4. 足摆高度跟踪: 命令摆动的腿足端高度偏差 ---
+        p_footswing_height = 0.0
+        for leg_idx, leg in enumerate(legs):
+            c_cmd = self.gait_generator.get_contact_target(leg_idx, current_time)
+            swing_mask = 1.0 - c_cmd
+            foot_z = float(leg.foot_pos_world[2])
+            height_err = (foot_z - self.footswing_height) ** 2
+            p_footswing_height += swing_mask * height_err
+    
+        # --- 5. z 方向线速度惩罚 ---
+        p_lin_vel_z = float(self.state.base.lin_vel_world[2] ** 2)
+
+        # --- 6. roll/pitch 角速度惩罚 ---
+        omega_xy = self.state.base.ang_vel_world[:2]
+        p_ang_vel_xy = float(np.dot(omega_xy, omega_xy))
+
+        # --- 7. 关节力矩惩罚 ---
+        tau = self.state.tau_ctrl if self.state.tau_ctrl is not None else np.zeros(12)
+        p_torques = float(np.dot(tau, tau))
+
+        # --- 8. 关节速度惩罚 ---
+        joint_qvel = np.concatenate([leg.qvel for leg in legs])
+        p_dof_vel = float(np.dot(joint_qvel, joint_qvel))
+
+        # --- 9. action rate 惩罚 ---
+        action_diff = self.current_action - self.prev_action
+        p_action_rate = float(np.dot(action_diff, action_diff))
+
+        # --- 10. 支撑腿足端速度惩罚（stance phase tracking, velocity）---
+        # 公式：Σ_foot C_cmd * exp(-|v_xy^foot|^2 / sigma_cv)
+        # C_cmd=1 表示应接地（支撑相），足端静止时得分接近 1，滑动时趋近 0——系数取负则惩罚滑动
+        p_feet_slip = 0.0
+        for leg_idx, leg in enumerate(legs):
+            c_cmd = self.gait_generator.get_contact_target(leg_idx, current_time)
+            foot_vel_xy = leg.foot_vel_world[:2]
+            vel_sq = float(np.dot(foot_vel_xy, foot_vel_xy))
+            p_feet_slip += c_cmd * float(np.exp(-vel_sq / max(self.gait_vel_sigma, 1e-6)))
 
         reward = (
-            self.reward_w_vel * r_vel
-            + self.reward_w_alive * self.reward_alive
-            - self.reward_w_tilt * p_tilt
-            - self.reward_w_energy * p_energy
-            - self.reward_w_action_delta * p_action_delta
-            + self.reward_w_swing * r_swing
-            - self.reward_w_contact * p_contact
+            self.rw_tracking_lin_vel    * r_tracking_lin_vel
+            + self.rw_tracking_ang_vel  * r_tracking_ang_vel
+            - self.rw_swing_phase_force * p_swing_phase
+            - self.rw_footswing_height  * p_footswing_height
+            - self.rw_lin_vel_z         * p_lin_vel_z
+            - self.rw_ang_vel_xy        * p_ang_vel_xy
+            - self.rw_torques           * p_torques
+            - self.rw_dof_vel           * p_dof_vel
+            - self.rw_action_rate       * p_action_rate
+            - self.rw_feet_slip         * p_feet_slip
         )
         info = {
-            'r_vel': float(r_vel),
-            'r_alive': float(self.reward_alive),
-            'p_tilt': float(p_tilt),
-            'p_energy': float(p_energy),
-            'p_action_delta': float(p_action_delta),
-            'r_swing': float(r_swing),
-            'p_contact': float(p_contact),
-            'reward': float(reward),
+            'r_tracking_lin_vel':  r_tracking_lin_vel,
+            'r_tracking_ang_vel':  r_tracking_ang_vel,
+            'p_swing_phase':       p_swing_phase,
+            'p_footswing_height':  p_footswing_height,
+            'p_lin_vel_z':         p_lin_vel_z,
+            'p_ang_vel_xy':        p_ang_vel_xy,
+            'p_torques':           p_torques,
+            'p_dof_vel':           p_dof_vel,
+            'p_action_rate':       p_action_rate,
+            'p_feet_slip':         p_feet_slip,
+            'reward':              float(reward),
         }
         return float(reward), info
+
 
     def map_rl_action_to_torque(self, rl_action: np.ndarray) -> np.ndarray:
         """将 RL 动作（关节位置偏移）映射为关节力矩，不影响 step。
@@ -815,7 +879,7 @@ class QuadrupedEnv(gym.Env):
                 continue
             
             R = contact.frame.reshape(3, 3)
-            force_world = R.T @ force_contact[:3]
+            force_world = R @ force_contact[:3]
 
             leg = getattr(self.state, leg_name)
             leg.contact_state = True

@@ -8,7 +8,7 @@ class WBInterface:
     
     配置参数来源：
     - swing_kp, swing_kd: 从环境的 robot_config (加载自 robot/*.yaml)
-    - use_feedback_linearization, use_friction_compensation: 从环境的 sim_config (加载自 sim_config.yaml)
+    - use_swing_tau_forward_optimization, use_friction_compensation: 从环境的 sim_config (加载自 sim_config.yaml)
     """
     def __init__(self, env):
         self.env = env
@@ -29,7 +29,7 @@ class WBInterface:
         self.swing_kd = self.env.robot.swing_kd
 
  
-        self.use_feedback_linearization = env.sim_config.get('optimize', {}).get('use_feedback_linearization', False)
+        self.use_swing_tau_forward_optimization = env.sim_config.get('optimize', {}).get('use_swing_tau_forward_optimization', False)
     def compute_tau(self, state: QuadrupedState,
                     swing_targets: Optional[dict] = None,
                     contact_sequence: Optional[np.ndarray] = None,
@@ -122,6 +122,6 @@ class WBInterface:
         v_acc = d_acc + self.swing_kp * error_pos + self.swing_kd * error_vel
         
         tau_swing = J.T @ (self.swing_kp * error_pos + self.swing_kd * error_vel)
-        if self.use_feedback_linearization:
+        if self.use_swing_tau_forward_optimization:
             tau_swing += leg.mass_matrix @ np.linalg.pinv(J) @ (v_acc - J_dot @ leg.qvel) + leg.qfrc_bias
         return tau_swing

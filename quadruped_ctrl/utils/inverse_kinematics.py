@@ -107,7 +107,6 @@ if __name__ == "__main__":
     }
     
     # 求解
-    print("解IK...")
     start_time = time.time()
     joint_solution = ik_solver.compute_ik(target_pos)
     elapsed = time.time() - start_time
