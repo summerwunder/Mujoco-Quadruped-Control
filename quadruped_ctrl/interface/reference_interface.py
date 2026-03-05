@@ -133,7 +133,7 @@ class ReferenceInterface:
         # 头部（集成了相机和雷达）具有一定的重量 。
         # 如果你的单刚体模型（SRBD）假设质量是均匀分布的，
         # 而没有考虑头部载荷导致的质心前移，MPC 算出的足底力分配就会不足以支撑前端，导致“低头” 。
-        reference_orientation =  [-terrain_roll, -terrain_pitch-6e-1, 0]   
+        reference_orientation =  [-terrain_roll, -terrain_pitch, 0]   
         # 中心化：使用当前机器人位置作为原点
         center_pos = current_state.base.pos.copy()
         
