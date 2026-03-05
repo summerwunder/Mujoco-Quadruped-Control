@@ -60,6 +60,8 @@ class QuadrupedEnv(gym.Env):
         self.show_footholds = self.sim_config.get('render', {}).get('show_footholds', False)
         
         self.verbose = self.sim_config.get('verbose', False)
+
+        model_path = os.path.abspath(model_path)
         self.model = mujoco.MjModel.from_xml_path(model_path)
         self.data = mujoco.MjData(self.model)
         self.viewer = None

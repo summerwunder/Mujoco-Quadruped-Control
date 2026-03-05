@@ -27,14 +27,14 @@ reward:
   gait_vel_sigma:     0.5    # 支撑相跟踪（足端速度）的高斯核宽度
   footswing_height:   0.06   # 目标摆动高度 (m)
   weights:
-    tracking_lin_vel:  2.0    # xy 速度跟踪
-    tracking_ang_vel:  2.0    # yaw 跟踪
-    swing_phase_force: 1.0    # 摆动相跟踪（力）（指定正数，代码内取负）
-    feet_slip:         1.0    # 支撑腿足端速度惩罚（高斯形式，与 swing_phase_force 对称）
-    footswing_height:  0.5    # 足摆高度跟踪（指定正数，代码内取负）
+    tracking_lin_vel:  1.0    # xy 速度跟踪
+    tracking_ang_vel:  1.0    # yaw 跟踪
+    swing_phase_force: 2.0    # 摆动相跟踪（力）（指定正数，代码内取负）
+    feet_slip:         2.0    # 支撑腿足端速度惩罚（高斯形式，与 swing_phase_force 对称）
+    footswing_height:  3.0    # 足摆高度跟踪（指定正数，代码内取负）
     lin_vel_z:         2.0    # z 方向速度（指定正数，代码内取负）
     ang_vel_xy:        0.0    # roll/pitch 角速度（指定正数，代码内取负）
-    torques:           0.00002      # 关节力矩（指定正数，代码内取负）
+    torques:           0.00004      # 关节力矩（指定正数，代码内取负）
     dof_vel:           0      # 关节速度（指定正数，代码内取负）
-    action_rate:       0.2     # action smoothing（指定正数，代码内取负）
+    action_rate:       0.12     # action smoothing（指定正数，代码内取负）
     

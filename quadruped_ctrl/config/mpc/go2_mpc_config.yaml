@@ -1,0 +1,36 @@
+horizon: 15
+grf_max: 150.0
+grf_min: 0.0
+
+
+weights:
+  Q_position: [0, 0, 1500]             # x, y, z
+  Q_velocity: [200, 200, 200]          # x_vel, y_vel, z_vel
+  Q_base_angle: [1000, 1200, 0]        # roll, pitch, yaw
+  Q_base_angle_rates: [20, 20, 600]    # roll_rate, pitch_rate, yaw_rate
+  Q_foot_pos: [300, 300, 300]          # f_x, f_y, f_z (×4 legs)
+  Q_com_position_z_integral: [50]      # integral of z_com
+  Q_com_velocity_integral: [10, 10, 10] # integral of x/y/z_com_vel
+  Q_roll_integral_integral: [10]       # integral of roll
+  Q_pitch_integral_integral: [10]      # integral of pitch
+
+R:
+  R_foot_vel: [0.0001, 0.0001, 0.00001]  # v_x, v_y, v_z (×4 legs)
+  R_foot_force: [0.1, 0.1, 0.1]
+
+# Solver / optimizer options
+solver:
+  use_ddp: false
+  use_rti: false
+  num_qp_iterations: 12
+  as_rti_type: AS-RTI-A  # options: AS-RTI-A, AS-RTI-B, AS-RTI-C, AS-RTI-D
+  solver_mode: balance   # options: balance, robust, fast, crazy_speed
+  qp_solver_iter_max: 10
+
+  use_nonuniform_discretization: false
+  dt_fine_grained: 0.01
+  horizon_fine_grained: 4
+
+  use_integrators: true
+  alpha_integrator: 0.1
+  integrator_clip: [0.5, 0.2, 0.2, 0.0, 0.0, 1.0]

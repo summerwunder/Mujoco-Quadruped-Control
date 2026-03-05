@@ -54,7 +54,7 @@ class ConfigLoader:
         Returns:
             RobotConfig对象
         """
-        robot_name = data.get('robot_name', 'go1')
+        robot_name = data.get('robot_name')
         
         # 物理参数
         physics = data.get('physics', {})

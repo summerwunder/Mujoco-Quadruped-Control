@@ -13,14 +13,14 @@ full stance 站立测试支撑腿 + 可视化参考点、接触力等
 
 def main() -> None:
     env = QuadrupedEnv(
-        robot_config='robot/go1.yaml',
-        model_path='quadruped_ctrl/assets/robot/go1/scene.xml',
+        robot_config='robot/go2.yaml',
+        model_path='quadruped_ctrl/assets/robot/go2/scene.xml',
         sim_config_path='sim_config.yaml'
     )
     mujoco.mj_resetDataKeyframe(env.model, env.data, 0)
     obs, _ = env.reset()
     
-    mpc_config_path = "go1_mpc_config.yaml"
+    mpc_config_path = "go2_mpc_config.yaml"
     mpc_controller = ControllerFactory.create_controller("mpc_gradient", env, mpc_config_path=mpc_config_path)
     ref_interface = ReferenceInterface(env, mpc_config_path=mpc_config_path)
     wb_interface = WBInterface(env)

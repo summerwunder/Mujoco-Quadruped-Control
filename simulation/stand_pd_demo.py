@@ -6,8 +6,8 @@ import time
 import numpy as np
 
 if __name__ == '__main__':
-    env = QuadrupedEnv(robot_config='robot/go1.yaml',
-                       model_path='quadruped_ctrl/assets/robot/go1/scene_terrain.xml',
+    env = QuadrupedEnv(robot_config='robot/go2.yaml',
+                       model_path='quadruped_ctrl/assets/robot/go2/scene.xml',
                        sim_config_path='sim_config.yaml',)
     obs, _ = env.reset()
     pd_controller = ControllerFactory.create_controller("pd", env)
