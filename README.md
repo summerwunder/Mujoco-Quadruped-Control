@@ -4,9 +4,9 @@
 
 ## Demo
 
-| NMPC 平地行走 | NMPC 地形行走 |
-|:---:|:---:|
-| ![walk_mpc](docs/walk_mpc.gif) | ![walk_terrain_mpc](docs/walk_terrain_mpc.gif) |
+| NMPC 平地行走 | NMPC坡度行走 | NMPC 地形行走 |
+|:---:|:---:|:---:|
+| ![walk_mpc](docs/walk_mpc.gif) | ![walk_slope_mpc](docs/walk_slope_mpc.gif) | ![walk_terrain_mpc](docs/walk_terrain_mpc.gif) |
 
 ## 功能特性
 
