@@ -14,7 +14,7 @@ full stance 站立测试支撑腿 + 可视化参考点、接触力等
 def main() -> None:
     env = QuadrupedEnv(
         robot_config='robot/go1.yaml',
-        model_path='quadruped_ctrl/assets/robot/go1/scene.xml',
+        model_path='quadruped_ctrl/assets/robot/go1/scene_stairs.xml',
         sim_config_path='sim_config.yaml'
     )
     mujoco.mj_resetDataKeyframe(env.model, env.data, 0)
@@ -34,7 +34,7 @@ def main() -> None:
         "RL": np.zeros(3, dtype=np.float64),
         "RR": np.zeros(3, dtype=np.float64),
     }
-    ref_lin_vel = np.array([0.6, 0.0, 0.0], dtype=np.float64)
+    ref_lin_vel = np.array([0.4, 0.0, 0.0], dtype=np.float64)
     ref_ang_vel = np.array([0.0, 0.0, 0.0], dtype=np.float64)
     step = 0
     last_render_time = 0

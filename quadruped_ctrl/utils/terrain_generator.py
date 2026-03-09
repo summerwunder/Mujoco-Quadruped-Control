@@ -143,7 +143,7 @@ class TerrainGenerator:
                   init_pos=[1.0, 0.0, 0.0],
                   yaw=0.0,
                   width=0.2,
-                  height=0.15,
+                  height=0.10,
                   length=1.5,
                   stair_nums=10):
 
@@ -246,6 +246,28 @@ class TerrainGenerator:
         quat = euler_to_quat(euler[0], euler[1], euler[2])
         geo.attrib["quat"] = list_to_str(quat)
 
+
+    def AddDownStairs(self,
+                      init_pos=[1.0, 0.0, 0.0],
+                      yaw=0.0,
+                      width=0.2,
+                      height=0.10,
+                      length=1.5,
+                      stair_nums=10):
+        
+        # 初始局部高度（第一级下楼台阶的高度）
+        # 假设 init_pos 是平台的高度，那么第一级台阶应该比平台低一个 height
+        for i in range(stair_nums):
+            # 计算当前台阶相对于 init_pos 的偏移
+            # i=0 时，移动一个 width，高度下降一个 height
+            rel_x = (i + 1) * width
+            rel_z = - (i + 0.5) * height # -0.5 是为了对齐 box 的中心
+            
+            x_offset, y_offset = rot2d(rel_x, 0.0, yaw)
+            
+            self.AddBox([x_offset + init_pos[0], y_offset + init_pos[1], rel_z + init_pos[2]],
+                        [0.0, 0.0, yaw], [width, length, height])
+            
     def AddHeighFieldFromImage(
             self,
             position=[1.0, 0.0, 0.0],  # position
@@ -302,29 +324,12 @@ class TerrainGenerator:
 
 
 if __name__ == "__main__":
-    """测试地形生成器"""
-    print("=== 地形生成器测试 ===\n")
+    tg = TerrainGenerator(robot_name="go1", output_scene="scene_stairs.xml")
     
-    # 创建地形生成器（使用 go1 机器人）
-    tg = TerrainGenerator(robot_name="go1", output_scene="scene_terrain1.xml")
-    
-    # # 1. 箱子障碍物
-    # tg.AddBox(position=[1.5, 0.0, 0.1], euler=[0, 0, 0.0], size=[0.5, 0.5, 0.2])
-    # print("  ✓ 箱子障碍物")
-    
-    # # 2. 台阶
-    # tg.AddStairs(init_pos=[2.0, 1.0, 0.0], yaw=0.0, stair_nums=5)
-    # print("  ✓ 台阶")
-    
-    # 3. Perlin 噪声地形
-    tg.AddPerlinHeighField(
-        position=[4.0, 0.0, 0.0], 
-        size=[2.0, 2.0],
-        height_scale=0.15,
-        smooth=30.0
-    )
-    
-    # 保存场景
+    # 1. 上楼 (起于 2.0，终于 3.6，最高处 0.8)
+    tg.AddStairs(init_pos=[2.0, 0.0, 0.0], yaw=0.0, width=0.2, height=0.1, length=1.5, stair_nums=8)
+    tg.AddBox(position=[3.85, 0.0, 0.75], euler=[0,0,0], size=[0.5, 1.5, 0.1])
+    tg.AddDownStairs(init_pos=[4.0, 0.0, 0.8], yaw=0.0, width=0.2, height=0.1, length=1.5, stair_nums=8)
     print()
     output_file = tg.Save()
     
