@@ -126,7 +126,7 @@ if __name__ == '__main__':
     gen = SwingTrajectoryGenerator(swing_h, duration)
     
     lo = np.array([0.0, 0.0, 0.0])
-    td = np.array([0.5, 0.0, 0.2]) 
+    td = np.array([0.5, 0.0, 0.0]) 
     print(f"Testing Z: {lo[2]} -> {td[2]} with swing_height: {swing_h}")
     
     t_test = np.linspace(0, duration, 50)

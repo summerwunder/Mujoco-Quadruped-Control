@@ -115,8 +115,7 @@ class WBInterface:
         J = leg.jac_pos_base[:, leg.qvel_idxs]      # (3x3)
         J_dot = leg.jac_dot_base[:, leg.qvel_idxs] # (3x3)
 
-        # 1. 计算笛卡尔空间目标加速度 (PD)
-        # 这里的 Kp/Kd 需要针对动态摆动调优，通常比站立时要小一点，防止撞地
+        # 1. 计算笛卡尔空间目标加速度
         error_pos = d_pos - leg.foot_pos
         error_vel = d_vel - leg.foot_vel
         v_acc = d_acc + self.swing_kp * error_pos + self.swing_kd * error_vel
