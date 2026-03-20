@@ -1,11 +1,22 @@
 physics:
   dt: 0.002                # 500Hz
-  mpc_frequency: 80       
+  mpc_frequency: 50       
   scene: "flat"            # flat, random_boxes, perlin
   gravity: 9.81
   mu: 0.5
   
 verbose: true
+
+# mppi
+sampling:
+  horizon: 12
+  device: "gpu" # options: cpu, gpu
+  control_parametrization: "linear_spline" # options: cubic_spline, linear_spline
+  num_parallel_computations: 1000
+  num_sampling_iterations: 1
+  num_splines: 4
+  sigma_mppi: 3
+
 
 optimize:
   use_swing_tau_forward_optimization: true

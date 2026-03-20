@@ -55,6 +55,14 @@ class QuadrupedEnv(gym.Env):
             module_dir = os.path.dirname(__file__)
             model_path = os.path.join(module_dir, 'assets', 'robot', 'go1', 'scene.xml')
         
+        self.horizon = self.sim_config.get('sampling', {}).get('horizon', 10)
+        self.device = self.sim_config.get('sampling', {}).get('device', 'gpu')
+        self.control_parametrization = self.sim_config.get('sampling', {}).get('control_parametrization', 'cubic_spline')
+        self.num_parallel_computations = self.sim_config.get('sampling', {}).get('num_parallel_computations', 2048)
+        self.num_sampling_iterations = self.sim_config.get('sampling', {}).get('num_sampling_iterations', 2)
+        self.num_splines = self.sim_config.get('sampling', {}).get('num_splines', 2)
+        self.sigma_mppi = self.sim_config.get('sampling', {}).get('sigma_mppi', 3)
+
         self.show_velocity_vector = self.sim_config.get('render', {}).get('show_velocity_vector', False)
         self.show_swing_trajectory = self.sim_config.get('render', {}).get('show_swing_trajectory', False)
         self.show_footholds = self.sim_config.get('render', {}).get('show_footholds', False)
@@ -82,7 +90,6 @@ class QuadrupedEnv(gym.Env):
         # 观测噪声标准差
         obs_noise_cfg = self.rl_config.get('obs_noise', {})
         self.noise_dof_pos  = float(obs_noise_cfg.get('dof_pos',  0.01))
-
         
         self.current_step = 0
         self.max_steps = 2000

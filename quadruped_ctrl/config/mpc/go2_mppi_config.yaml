@@ -4,8 +4,8 @@ grf_min: 0.0
 
 
 weights:
-  Q_position: [0, 0, 1500]             # x, y, z
-  Q_velocity: [200, 200, 200]          # x_vel, y_vel, z_vel
+  Q_position: [0, 0, 2000]             # x, y, z
+  Q_velocity: [500, 500, 500]          # x_vel, y_vel, z_vel
   Q_base_angle: [1000, 1200, 0]        # roll, pitch, yaw
   Q_base_angle_rates: [20, 20, 600]    # roll_rate, pitch_rate, yaw_rate
   Q_foot_pos: [300, 300, 300]          # f_x, f_y, f_z (×4 legs)
