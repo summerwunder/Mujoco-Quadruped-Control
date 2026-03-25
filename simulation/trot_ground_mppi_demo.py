@@ -63,7 +63,11 @@ def main() -> None:
 
     step = 0
     last_render_time = 0
-    
+
+    # ========== 终止条件 ==========
+    MAX_TIME = 10.0  # 最大仿真时间（秒）
+    MIN_HEIGHT = 0.12  # 最小身体高度（米），低于此值判定为倒地
+
     print("=" * 60)
     print("MPPI控制器平地行走测试")
     print(f"Horizon: {mppi_controller.horizon}")
@@ -78,6 +82,16 @@ def main() -> None:
             step_start = time.time()
             state = env.get_state()
             com_pos = state.base.com.copy()
+
+            # ========== 终止条件检查 ==========
+            base_height = state.base.pos[2]
+            sim_time = env.data.time
+            if sim_time > MAX_TIME:
+                print(f"\n[终止] 达到最大时间 {MAX_TIME}s")
+                break
+            if base_height < MIN_HEIGHT:
+                print(f"\n[终止] 身体高度过低: {base_height:.3f}m < {MIN_HEIGHT}m")
+                break
 
             env.ref_base_lin_vel = ref_lin_vel
             env.ref_base_ang_vel = ref_ang_vel

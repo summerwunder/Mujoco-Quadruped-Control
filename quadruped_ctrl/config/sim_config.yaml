@@ -9,13 +9,13 @@ verbose: true
 
 # mppi
 sampling:
-  horizon: 12
+  horizon: 20
   device: "gpu" # options: cpu, gpu
   control_parametrization: "linear_spline" # options: cubic_spline, linear_spline
-  num_parallel_computations: 1000
+  num_parallel_computations: 2000
   num_sampling_iterations: 1
   num_splines: 4
-  sigma_mppi: 3
+  sigma_mppi: 3.0                         # 增大采样方差以提高探索
 
 
 optimize:
@@ -47,7 +47,7 @@ gait:
 
   gaits:
     trot:
-      duty_factor: 0.55
+      duty_factor: 0.5
       step_freq: 1.6
       margin: 0.04
       phase_offsets: [0, 0.5, 0.5, 0] # FL, FR, RL, RR

@@ -28,9 +28,9 @@ class MPPI_Controller:
         self.mpc_config = ConfigLoader.load_mpc_config(mpc_config_path)
         self.horizon = int(self.mpc_config.get('horizon'))
 
-        self.max_sampling_forces_x = 10
-        self.max_sampling_forces_y = 10
-        self.max_sampling_forces_z = 30
+        self.max_sampling_forces_x = 20   # 增大水平力采样范围
+        self.max_sampling_forces_y = 20
+        self.max_sampling_forces_z = 50   # 增大垂直力采样范围以覆盖更大的GRF范围
 
         if self.env.device == "gpu":
             try:
@@ -86,6 +86,7 @@ class MPPI_Controller:
         self.num_parallel_computations = self.env.num_parallel_computations
         # MPPI
         self.sigma_mppi = self.env.sigma_mppi
+        self.temperature = self.mpc_config.get('temperature', 0.1)  # MPPI温度参数，默认0.1
         self.compute_control = self.compute_control_mppi
         self.shift_solution_enabled = bool(self.mpc_config.get('shift_solution', False))
 
@@ -115,9 +116,13 @@ class MPPI_Controller:
         Returns:
             (float): cost of the rollout
         """
+        # 确保 contact_sequence 是 JAX 数组
+        contact_sequence = jnp.asarray(contact_sequence, dtype=DTYPE_GENERAL)
+
         state = initial_state
         cost = jnp.float32(0.0)
         n_ = jnp.array([-1, -1, -1, -1])
+        prev_input = jnp.zeros(12, dtype=DTYPE_GENERAL)  # 记录上一步控制量，用于平滑项
 
         FL_num_of_contact = self.horizon
         FR_num_of_contact = self.horizon
@@ -125,7 +130,7 @@ class MPPI_Controller:
         RR_num_of_contact = self.horizon
 
         def iterate_fun(n, carry):
-            cost, state, reference, n_ = carry
+            cost, state, reference, n_, prev_input = carry
             n_ = n_.at[0].set(n)
             n_ = n_.at[1].set(n)
             n_ = n_.at[2].set(n)
@@ -221,14 +226,20 @@ class MPPI_Controller:
             )
             state_next = self.robot.integrate_jax(state, input, current_contact, n)
 
-            # Calculate cost regulation state
+            # Calculate cost: state error + control smoothing
             state_error = state_next - reference[0 : self.state_dim]
             error_cost = state_error.T @ self.Q @ state_error
-            return (cost + error_cost, state_next, reference, n_)
+            
+            # Control smoothing cost (penalize large changes in GRF)
+            current_forces = input[12:24]  # 只取力部分
+            force_change = current_forces - prev_input
+            control_cost = force_change.T @ self.R[12:24, 12:24] @ force_change
+            
+            return (cost + error_cost + control_cost, state_next, reference, n_, current_forces)
 
 
-        carry = (cost, state, reference, n_)
-        cost, state, reference, n_ = jax.lax.fori_loop(0, self.horizon, iterate_fun, carry)
+        carry = (cost, state, reference, n_, prev_input)
+        cost, state, reference, n_, _ = jax.lax.fori_loop(0, self.horizon, iterate_fun, carry)
 
         return cost
 
@@ -253,14 +264,20 @@ class MPPI_Controller:
 
         # compute mppi update
         beta = best_cost 
-        temperature = 1.0
-        exp_costs = jnp.exp(-temperature * (costs - beta))
-        denom = jnp.sum(exp_costs) + 1e-10
+        temperature = self.temperature  # 从配置读取
+        # 数值稳定性：限制指数范围防止溢出
+        costs_normalized = jnp.clip(costs - beta, -50.0 / temperature, 50.0 / temperature)
+        exp_costs = jnp.exp(-costs_normalized / temperature)
+        # 防止权重全零
+        exp_costs = jnp.maximum(exp_costs, 1e-10)
+        denom = jnp.sum(exp_costs)
         weights = exp_costs / denom
-        weighted_inputs = weights[:, jnp.newaxis, jnp.newaxis] * additional_random_parameters.reshape(
-            (self.num_parallel_computations, self.num_control_parameters, 1)
-        )
-        best_control_parameters += jnp.sum(weighted_inputs, axis=0).reshape((self.num_control_parameters,))
+
+        # 正确的 MPPI 更新：对控制参数加权平均
+        weighted_control_parameters = weights[:, None] * control_parameters_vec
+        best_control_parameters = jnp.sum(weighted_control_parameters, axis=0)
+        # 限制范围
+        best_control_parameters = jnp.clip(best_control_parameters, -self.max_sampling_forces_z, self.max_sampling_forces_z)
 
         # And redistribute it to each leg
         best_control_parameters_FL = best_control_parameters[0 : self.num_control_parameters_single_leg]
@@ -602,24 +619,30 @@ class MPPI_Controller:
             self.best_control_parameters = self.shift_solution(self.best_control_parameters, 1.0)
 
         # 2. 构造状态 (尽量保持在 JAX 框架内)
+        # 注意：使用质心位置和世界坐标系下的速度，与参考坐标系一致
+        # 足端位置使用相对于质心的位置（foot_pos_centered），确保坐标系一致
         state_current = jnp.concatenate([
-            self.env.state.base.pos, 
-            self.env.state.base.lin_vel,
-            self.env.state.base.euler, 
+            self.env.state.base.com,            # 质心位置（世界坐标系）
+            self.env.state.base.lin_vel_world,  # 世界坐标系速度
+            self.env.state.base.euler,
             self.env.state.base.ang_vel,
-            self.env.state.FL.foot_pos, 
-            self.env.state.FR.foot_pos,
-            self.env.state.RL.foot_pos, 
-            self.env.state.RR.foot_pos
+            self.env.state.FL.foot_pos_world - self.env.state.base.com,  # 足端相对于质心的位置
+            self.env.state.FR.foot_pos_world - self.env.state.base.com,
+            self.env.state.RL.foot_pos_world - self.env.state.base.com,
+            self.env.state.RR.foot_pos_world - self.env.state.base.com
         ])
 
         # 3. 摆动腿参考替换 (向量化操作更优雅)
         # 假设每条腿 3 维，从索引 12 开始
+        # 注意：ref_foot_* 是世界坐标系，需要转换为相对于质心的位置
+        com = self.env.state.base.com
         for i in range(4):
             if current_contact[i] == 0:
                 start_idx = 12 + i * 3
                 ref_foot = getattr(reference_state, f'ref_foot_{["FL","FR","RL","RR"][i]}')
-                state_current = state_current.at[start_idx : start_idx+3].set(ref_foot.flatten())
+                # 转换为相对于质心的位置
+                ref_foot_relative = ref_foot.flatten() - com
+                state_current = state_current.at[start_idx : start_idx+3].set(ref_foot_relative)
 
         # 4. 状态切换重置 (使用 JAX 风格)
         for i in range(4):
@@ -628,16 +651,23 @@ class MPPI_Controller:
                 end = (i + 1) * self.num_control_parameters_single_leg
                 self.best_control_parameters = self.best_control_parameters.at[start:end].set(0.0)
 
-        # 构造参考
+        # 构造参考（足端位置转换为相对于质心的位置）
+        # 注意：ref_position 是相对于当前位置的参考高度，不是绝对位置
+        # 所以参考状态的位置应该是当前质心位置 + 参考高度偏移
+        ref_pos = np.array([
+            com[0],  # x 保持当前位置
+            com[1],  # y 保持当前位置
+            reference_state.ref_position[2]  # z 使用参考高度
+        ])
         reference_jax = np.concatenate([
-            reference_state.ref_position, 
+            ref_pos,
             reference_state.ref_linear_velocity,
-            reference_state.ref_orientation, 
+            reference_state.ref_orientation,
             reference_state.ref_angular_velocity,
-            reference_state.ref_foot_FL.reshape((3,)), 
-            reference_state.ref_foot_FR.reshape((3,)),
-            reference_state.ref_foot_RL.reshape((3,)), 
-            reference_state.ref_foot_RR.reshape((3,))
+            reference_state.ref_foot_FL.reshape((3,)) - com,
+            reference_state.ref_foot_FR.reshape((3,)) - com,
+            reference_state.ref_foot_RL.reshape((3,)) - com,
+            reference_state.ref_foot_RR.reshape((3,)) - com
         ]).reshape((24,))
 
         return state_current, reference_jax

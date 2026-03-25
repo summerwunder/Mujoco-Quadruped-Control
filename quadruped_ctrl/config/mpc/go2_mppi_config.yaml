@@ -1,22 +1,19 @@
-horizon: 12
-grf_max: 150.0
+horizon: 20
+grf_max: 200.0
 grf_min: 0.0
+temperature: 1.0  # 增大温度参数，使权重分布更均匀
 
 
 weights:
-  Q_position: [0, 0, 2000]             # x, y, z
-  Q_velocity: [500, 500, 500]          # x_vel, y_vel, z_vel
-  Q_base_angle: [1000, 1200, 0]        # roll, pitch, yaw
-  Q_base_angle_rates: [20, 20, 600]    # roll_rate, pitch_rate, yaw_rate
-  Q_foot_pos: [300, 300, 300]          # f_x, f_y, f_z (×4 legs)
-  Q_com_position_z_integral: [50]      # integral of z_com
-  Q_com_velocity_integral: [10, 10, 10] # integral of x/y/z_com_vel
-  Q_roll_integral_integral: [10]       # integral of roll
-  Q_pitch_integral_integral: [10]      # integral of pitch
+  Q_position: [1, 1, 200]              # z 权重
+  Q_velocity: [30, 30, 30]             # 速度权重
+  Q_base_angle: [200, 200, 0]          # 增大 roll/pitch 权重
+  Q_base_angle_rates: [20, 20, 5]      # 增大角速度权重
+  Q_foot_pos: [1, 1, 1]                # 足端位置权重
 
 R:
-  R_foot_vel: [0.0001, 0.0001, 0.00001]  # v_x, v_y, v_z (×4 legs)
-  R_foot_force: [0.1, 0.1, 0.1]
+  R_foot_vel: [0.0001, 0.0001, 0.00001]
+  R_foot_force: [0.0001, 0.0001, 0.00001]  # 减小力平滑权重
 
 # Solver / optimizer options
 solver:
