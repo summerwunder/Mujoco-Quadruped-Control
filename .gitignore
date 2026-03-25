@@ -22,7 +22,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-runs
+# runs
 # --- uv 特有 ---
 .uv/
 uv.lock
